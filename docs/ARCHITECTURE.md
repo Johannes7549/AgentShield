@@ -1,0 +1,89 @@
+# Architecture
+
+AgentShield is a security and reliability layer in front of tools used by autonomous agents. Agents do not decide whether their own tool calls are allowed. A gateway outside the agent runtime does.
+
+This revision authorizes a signed tool call. It contains the Phase 0 foundation plus agent registration, policy versions, gateway decisions, and the audit append. It does not approve a request or integrate a framework.
+
+## System context
+
+```mermaid
+flowchart LR
+  agent[Agent process]
+  gateway[Runtime gateway]
+  policy[Policy library]
+  identity[Identity library]
+  control[Control plane]
+  dashboard[Dashboard]
+  intel[Intelligence service]
+  pg[(PostgreSQL)]
+  redis[(Redis)]
+  nats[(NATS)]
+  minio[(MinIO)]
+
+  agent -->|signed tool request, Phase 1| gateway
+  gateway --> policy
+  gateway --> identity
+  gateway --> pg
+  gateway --> redis
+  gateway --> nats
+  gateway --> minio
+  dashboard --> control
+  control --> pg
+  nats -.->|future subscribers| intel
+```
+
+The dotted intelligence path is not wired. NATS is running for local development so the later event path has a broker. Nothing publishes to it yet.
+
+## Services
+
+| Service | Language | Owns | Does not own |
+| --- | --- | --- | --- |
+| Control plane (`apps/control-plane`) | NestJS | Users, organizations, memberships, agent registration, policy documents, human approval decisions | Hot-path authorization |
+| Runtime gateway (`runtime/gateway`) | Go | Request authentication, policy evaluation, rate and budget enforcement, decision records, audit append | User accounts |
+| Policy library (`runtime/policy-engine`) | Go | Deterministic evaluation, in-process | Network hops, storage |
+| Identity library (`runtime/identity`) | Go | Signature input and Ed25519 verify | Nonce storage, key custody |
+| Intelligence (`apps/intelligence-engine`) | Python | Later: injection and anomaly classification | Authorization decisions |
+| Dashboard (`apps/dashboard`) | Next.js | Operator console | Enforcement |
+
+The policy library is a package, not a service. Evaluation stays in the gateway process so a network failure cannot be confused with an allow.
+
+SDKs and framework integrations are directories with an explicit unsupported status. They do not intercept tool calls.
+
+## Trust boundary
+
+The agent process is untrusted. Claims in a JSON body, including organization id, permissions, and "this action was already approved", are not authority. The gateway will load the agent by the key that verifies the raw body, then load that agent's organization from PostgreSQL.
+
+Human operators use the control plane. An agent credential cannot call approval routes. An agent cannot approve its own action.
+
+## Data ownership
+
+PostgreSQL is the transactional source of truth. Redis is reserved for nonces, rate limits, and short-lived approval state. NATS carries events after they are committed. MinIO stores evidence objects. The bucket created by Compose is private.
+
+`policy_versions` is the authorization source. `agent_permissions` is a projection for display and must be written in the same transaction as a policy activation. Evaluators must not read that projection.
+
+ClickHouse is not part of this revision. There is no event pipeline to justify it.
+
+## Request path, target behavior
+
+Phase 1 implements this path. It is recorded here so the gateway does not grow a second one.
+
+1. Reject a body above the configured limit.
+2. Verify the Ed25519 signature over the raw body, timestamp, and nonce.
+3. Reject a reused nonce and a timestamp outside 60 seconds.
+4. Load the agent and active credential. Deny unless status is active and the organization claim matches.
+5. Load the active organization policy and the active agent policy.
+6. Evaluate with the rules in ADR 0004.
+7. Apply rate and budget limits when those controls exist.
+8. Persist the invocation and the decision, and append the audit link, in one transaction.
+9. `allow` may be executed by a registered adapter. `deny` stops. `require_approval` persists an approval bound to the raw-body hash and stops.
+10. On any error, do not call the tool.
+
+`sample.echo` is the only registered adapter. It returns the operation and resource and does not call another system. An unknown tool is HTTP 501, not a fake success.
+
+## Repository layout
+
+`apps/` holds long-running services. `runtime/` holds the gateway and the libraries on its hot path. `docs/api/` is the contract. `infrastructure/docker/postgres/migrations/` is the schema source of truth. Application code must not create or alter tables outside those migrations.
+
+## What runs today
+
+The control plane registers agents and policy versions for a bootstrapped human session. The gateway verifies Ed25519 signatures, reserves nonces in Redis, evaluates allow, deny, and require_approval, and appends the audit chain. `sample.echo` is the only adapter, and it has no external side effect. Readiness is 200 only when the dependencies for that process answer. The dashboard is a shell and does not render counts. Production configuration is refused.

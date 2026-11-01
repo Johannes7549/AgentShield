@@ -1,0 +1,86 @@
+name: agentshield
+
+# Local data services for Phase 0. Published ports are bound to loopback.
+# Credentials are development defaults. See .env.example and infrastructure/docker/README.md.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agentshield}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-agentshield}
+      POSTGRES_DB: ${POSTGRES_DB:-agentshield}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/docker/postgres/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  nats:
+    image: nats:2.10-alpine
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "127.0.0.1:${NATS_PORT:-4222}:4222"
+      - "127.0.0.1:8222:8222"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Upstream stopped publishing minio/minio and minio/mc. These Chainguard
+  # images are a publicly pullable MinIO server and client. The server image
+  # is distroless and runs as uid 65532, so it has no curl healthcheck.
+  minio-perms:
+    image: busybox:1.37
+    user: "0:0"
+    volumes:
+      - minio_data:/data
+    command: ["chown", "-R", "65532:65532", "/data"]
+    restart: "no"
+
+  minio:
+    image: cgr.dev/chainguard/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-agentshield}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-agentshield-dev-only}
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    volumes:
+      - minio_data:/data
+    depends_on:
+      minio-perms:
+        condition: service_completed_successfully
+
+  minio-init:
+    image: cgr.dev/chainguard/minio-client:latest
+    depends_on:
+      - minio
+    environment:
+      MC_HOST_local: http://${MINIO_ROOT_USER:-agentshield}:${MINIO_ROOT_PASSWORD:-agentshield-dev-only}@minio:9000
+    entrypoint: ["mc"]
+    command: ["mb", "--ignore-existing", "local/agentshield-evidence"]
+    restart: on-failure
+
+volumes:
+  postgres_data:
+  minio_data:

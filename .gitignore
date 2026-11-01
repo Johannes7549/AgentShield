@@ -1,0 +1,39 @@
+# Local secrets and machine-specific config
+.env
+.env.*
+!.env.example
+
+# Toolchains downloaded for local development
+.tools/
+
+# Node
+node_modules/
+dist/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Go
+bin/
+*.exe
+*.test
+vendor/
+
+# Editors and OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Logs and scratch
+*.log
+tmp/

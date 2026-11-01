@@ -1,0 +1,348 @@
+openapi: "3.1.0"
+info:
+  title: AgentShield Runtime Gateway API
+  version: "0.1.0"
+  description: |
+    Contract for the Go gateway. `/health/live` reports the process.
+    `/health/ready` returns 200 when PostgreSQL and Redis answer, and 503
+    when they do not. Production mode is still refused.
+
+    `POST /api/v1/runtime/authorize` authenticates the agent signature, evaluates
+    policy, and persists the decision. `allow` does not execute the tool.
+    `POST /api/v1/runtime/execute` runs only the labeled `sample.echo` adapter.
+    Every other tool returns 501. Approval consumption is not implemented.
+
+    The gateway authenticates the agent from the signature headers and the
+    registered public key. `organization_id` in the body is a claim. It is not
+    authority. A mismatch with the agent record is a deny.
+servers:
+  - url: http://127.0.0.1:8081
+    description: Local runtime gateway
+tags:
+  - name: Health
+  - name: Runtime
+paths:
+  /health/live:
+    get:
+      tags: [Health]
+      operationId: getGatewayLive
+      summary: Process liveness
+      description: Implemented. `authorization` is `ok` when the route is wired and `not_configured` when database settings are absent.
+      responses:
+        "200":
+          description: Process is running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthLive"
+  /health/ready:
+    get:
+      tags: [Health]
+      operationId: getGatewayReady
+      summary: Readiness
+      description: Implemented. Returns 200 when PostgreSQL and Redis answer, otherwise 503.
+      responses:
+        "200":
+          description: Dependencies answered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthReady"
+        "503":
+          description: Not ready to authorize tool calls
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthReady"
+  /api/v1/runtime/authorize:
+    post:
+      tags: [Runtime]
+      operationId: authorizeToolCall
+      summary: Authorize one tool call
+      description: |
+        Implemented. Validates the signed body, authenticates the agent, loads
+        policy, decides allow, deny, or require_approval, and persists the
+        decision and audit link. Errors fail closed. allow does not execute the tool.
+      security:
+        - agentSignature: []
+      parameters:
+        - $ref: "#/components/parameters/AgentIdHeader"
+        - $ref: "#/components/parameters/TimestampHeader"
+        - $ref: "#/components/parameters/NonceHeader"
+        - $ref: "#/components/parameters/SignatureHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuthorizeRequest"
+      responses:
+        "200":
+          description: Decision recorded. allow does not by itself execute the tool.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthorizeResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          description: Denied. The recorded decision is the body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthorizeResponse"
+  /api/v1/runtime/execute:
+    post:
+      tags: [Runtime]
+      operationId: executeToolCall
+      summary: Execute a previously allowed tool call
+      description: |
+        Implemented. Replays the idempotency key and the prior decision.
+        A deny stays a deny. require_approval is not executed.
+        The only registered adapter is sample.echo, and it has no external side effect.
+        Any other tool returns 501. Approval consumption is Not implemented.
+      security:
+        - agentSignature: []
+      parameters:
+        - $ref: "#/components/parameters/AgentIdHeader"
+        - $ref: "#/components/parameters/TimestampHeader"
+        - $ref: "#/components/parameters/NonceHeader"
+        - $ref: "#/components/parameters/SignatureHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExecuteRequest"
+      responses:
+        "200":
+          description: Adapter result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExecuteResponse"
+        "409":
+          description: The decision is not an unconsumed allow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "501":
+          description: No adapter is registered for the tool
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+components:
+  securitySchemes:
+    agentSignature:
+      type: apiKey
+      in: header
+      name: X-AgentShield-Signature
+      description: |
+        Ed25519 signature over `timestamp.nonce.hex(sha256(raw_body))`.
+        The other three headers are required with it. See runtime/identity.
+  parameters:
+    AgentIdHeader:
+      name: X-AgentShield-Agent-Id
+      in: header
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TimestampHeader:
+      name: X-AgentShield-Timestamp
+      in: header
+      required: true
+      schema:
+        type: string
+        description: Unix seconds. Skew limit is 60 seconds.
+    NonceHeader:
+      name: X-AgentShield-Nonce
+      in: header
+      required: true
+      schema:
+        type: string
+        pattern: "^[A-Za-z0-9_-]{16,128}$"
+    SignatureHeader:
+      name: X-AgentShield-Signature
+      in: header
+      required: true
+      schema:
+        type: string
+        description: Unpadded base64url Ed25519 signature.
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+  schemas:
+    ErrorBody:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, request_id]
+          properties:
+            code:
+              type: string
+              enum:
+                - unauthenticated
+                - forbidden
+                - validation_failed
+                - not_found
+                - conflict
+                - rate_limited
+                - approval_required
+                - approval_expired
+                - not_implemented
+                - internal_error
+            message:
+              type: string
+            request_id:
+              type: string
+              format: uuid
+    HealthLive:
+      type: object
+      required: [status, service, checks]
+      properties:
+        status:
+          const: ok
+        service:
+          const: gateway
+        checks:
+          type: object
+          required: [process, authorization]
+          properties:
+            process:
+              const: ok
+            authorization:
+              type: string
+              enum: [ok, not_configured]
+    HealthReady:
+      type: object
+      required: [status, reason]
+      properties:
+        status:
+          type: string
+          enum: [ok, not_ready]
+        reason:
+          type: string
+        checks:
+          type: object
+          properties:
+            authorization:
+              type: string
+              enum: [ok, not_configured, unavailable]
+    AuthorizeRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - agent_id
+        - organization_id
+        - execution_id
+        - tool_name
+        - operation
+        - resource
+        - arguments
+        - requested_at
+        - idempotency_key
+      properties:
+        agent_id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+          description: Claim only. The gateway compares it with the authenticated agent record.
+        execution_id:
+          type: string
+          format: uuid
+        tool_name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        operation:
+          type: string
+          minLength: 1
+          maxLength: 128
+        resource:
+          type: string
+          minLength: 1
+          maxLength: 512
+        arguments:
+          type: object
+          additionalProperties: true
+        requested_at:
+          type: string
+          format: date-time
+        idempotency_key:
+          type: string
+          minLength: 16
+          maxLength: 200
+    AuthorizeResponse:
+      type: object
+      required: [decision_id, outcome, explanation]
+      properties:
+        decision_id:
+          type: string
+          format: uuid
+        outcome:
+          type: string
+          enum: [allow, deny, require_approval]
+        explanation:
+          type: object
+          required: [reason]
+          properties:
+            policy_id:
+              type: string
+              format: uuid
+            policy_version:
+              type: integer
+            matched_rule:
+              type: string
+            reason:
+              type: string
+        approval_id:
+          type: string
+          format: uuid
+        approval_expires_at:
+          type: string
+          format: date-time
+    ExecuteRequest:
+      type: object
+      additionalProperties: false
+      required: [decision_id, idempotency_key]
+      properties:
+        decision_id:
+          type: string
+          format: uuid
+        idempotency_key:
+          type: string
+          minLength: 16
+          maxLength: 200
+        approval_id:
+          type: string
+          format: uuid
+    ExecuteResponse:
+      type: object
+      required: [decision_id, outcome, adapter]
+      properties:
+        decision_id:
+          type: string
+          format: uuid
+        outcome:
+          const: allow
+        adapter:
+          type: string
+          description: Adapter that handled the call. Unsupported tools use HTTP 501 instead of a fake adapter.
+        result:
+          type: object
+          additionalProperties: true

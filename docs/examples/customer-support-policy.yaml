@@ -1,0 +1,15 @@
+agent:
+  id: customer-support-agent
+
+permissions:
+  allowed:
+    - tickets.read
+    - knowledge.search
+    - customer.profile.read
+  denied:
+    - database.export
+    - customer.delete
+  approval_required:
+    - customer.update
+    - payment.refund
+    - email.send

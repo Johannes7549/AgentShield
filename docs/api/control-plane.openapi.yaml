@@ -1,0 +1,885 @@
+openapi: "3.1.0"
+info:
+  title: AgentShield Control Plane API
+  version: "0.1.0"
+  description: |
+    Contract for the NestJS control plane. `/health/live` and `/health/ready`
+    are implemented. Ready returns 200 when PostgreSQL answers and 503 when it
+    does not. Human sessions, agent registration, and policy versions are
+    implemented. Revocation, suspension, rotation, approval decisions, events,
+    incidents, audit reads, and chaos experiments are not.
+
+    Human callers authenticate with a bearer session. Agent signatures are
+    rejected on these routes. Organization scope comes from the authenticated
+    membership, not from a client-supplied organization id. There is no public
+    registration route. The first user is created by the bootstrap command.
+servers:
+  - url: http://127.0.0.1:8080
+    description: Local control plane
+tags:
+  - name: Health
+  - name: Sessions
+  - name: Agents
+  - name: Policies
+  - name: Approvals
+  - name: Audit
+  - name: Chaos
+paths:
+  /health/live:
+    get:
+      tags: [Health]
+      operationId: getControlPlaneLive
+      summary: Process liveness
+      description: Implemented. This reports the process, not that every management route exists.
+      responses:
+        "200":
+          description: Process is running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthLive"
+  /health/ready:
+    get:
+      tags: [Health]
+      operationId: getControlPlaneReady
+      summary: Readiness
+      description: Implemented. Returns 200 when PostgreSQL answers, otherwise 503.
+      responses:
+        "200":
+          description: Database answered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthReady"
+        "503":
+          description: Process is up and the database is not available
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthReady"
+  /api/v1/sessions:
+    post:
+      tags: [Sessions]
+      operationId: createSession
+      summary: Create a human session
+      description: |
+        Implemented. Checks the email and password of a bootstrapped user.
+        There is no public registration route. The token is returned once and
+        only its SHA-256 is stored. Agent signature headers are rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SessionCreate"
+      responses:
+        "201":
+          description: Session token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Session"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+  /api/v1/agents:
+    get:
+      tags: [Agents]
+      operationId: listAgents
+      summary: List agents in the caller's organization
+      description: Implemented. The organization comes from the session.
+      security:
+        - humanSession: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Agent page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentPage"
+        "401":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Agents]
+      operationId: registerAgent
+      summary: Register an agent public key
+      description: |
+        Implemented. Stores the raw Ed25519 public key. Secret key fields are
+        rejected. The caller must be an owner, admin, or operator.
+      security:
+        - humanSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentCreate"
+      responses:
+        "201":
+          description: Registered agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+  /api/v1/agents/{agentId}:
+    get:
+      tags: [Agents]
+      operationId: getAgent
+      summary: Get one agent
+      description: Implemented. Returns 404 when the agent is outside the caller's organization.
+      security:
+        - humanSession: []
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      responses:
+        "200":
+          description: Agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+        "404":
+          $ref: "#/components/responses/Error"
+  /api/v1/agents/{agentId}/revoke:
+    post:
+      tags: [Agents]
+      operationId: revokeAgent
+      summary: Revoke an agent and its active credentials
+      description: Not implemented. Revocation is permanent for those credential records.
+      security:
+        - humanSession: []
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      responses:
+        "200":
+          description: Revoked agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+        "404":
+          $ref: "#/components/responses/Error"
+  /api/v1/agents/{agentId}/suspend:
+    post:
+      tags: [Agents]
+      operationId: suspendAgent
+      summary: Suspend an agent without retiring its key
+      description: Not implemented.
+      security:
+        - humanSession: []
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      responses:
+        "200":
+          description: Suspended agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Agent"
+  /api/v1/agents/{agentId}/credentials/rotate:
+    post:
+      tags: [Agents]
+      operationId: rotateAgentCredential
+      summary: Add a new public key and mark the previous key rotated
+      description: Not implemented. The server stores the public key only.
+      security:
+        - humanSession: []
+      parameters:
+        - $ref: "#/components/parameters/AgentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CredentialRotate"
+      responses:
+        "201":
+          description: New credential metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Credential"
+  /api/v1/policies:
+    get:
+      tags: [Policies]
+      operationId: listPolicies
+      summary: List policies in the caller's organization
+      description: Implemented. Evaluation does not read this list. It reads policy_versions.
+      security:
+        - humanSession: []
+      responses:
+        "200":
+          description: Policy page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PolicyPage"
+    post:
+      tags: [Policies]
+      operationId: createPolicy
+      summary: Create a policy and its first immutable version
+      description: Implemented. Inserts an immutable version. A second active policy for the same organization or agent is a conflict.
+      security:
+        - humanSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PolicyCreate"
+      responses:
+        "201":
+          description: Created policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Policy"
+  /api/v1/policies/{policyId}:
+    put:
+      tags: [Policies]
+      operationId: replacePolicy
+      summary: Append a new policy version and move the current pointer
+      description: Implemented. Appends a version and moves the current pointer. Existing version rows are not edited.
+      security:
+        - humanSession: []
+      parameters:
+        - $ref: "#/components/parameters/PolicyId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PolicyReplace"
+      responses:
+        "200":
+          description: Updated policy pointer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Policy"
+  /api/v1/approvals:
+    get:
+      tags: [Approvals]
+      operationId: listApprovals
+      summary: List approval requests
+      description: Not implemented. Agents cannot call this route.
+      security:
+        - humanSession: []
+      responses:
+        "200":
+          description: Approval page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalPage"
+    post:
+      tags: [Approvals]
+      operationId: createApproval
+      summary: Record an approval request for an existing authorization decision
+      description: |
+        Not implemented. Reserved for the gateway service identity.
+        Agent credentials and the agent that initiated the action are rejected.
+      security:
+        - humanSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalCreate"
+      responses:
+        "201":
+          description: Pending approval
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Approval"
+        "403":
+          $ref: "#/components/responses/Error"
+  /api/v1/approvals/{approvalId}/approve:
+    post:
+      tags: [Approvals]
+      operationId: approveRequest
+      summary: Approve the exact bound payload
+      description: |
+        Not implemented. The caller must be a human approver, admin, or owner
+        in the same organization. The approval binds to payload_hash and expires.
+      security:
+        - humanSession: []
+      parameters:
+        - $ref: "#/components/parameters/ApprovalId"
+      responses:
+        "200":
+          description: Approved, not yet consumed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Approval"
+        "409":
+          $ref: "#/components/responses/Error"
+  /api/v1/approvals/{approvalId}/reject:
+    post:
+      tags: [Approvals]
+      operationId: rejectRequest
+      summary: Reject an approval request
+      description: Not implemented. A rejected approval cannot be replayed.
+      security:
+        - humanSession: []
+      parameters:
+        - $ref: "#/components/parameters/ApprovalId"
+      responses:
+        "200":
+          description: Rejected approval
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Approval"
+  /api/v1/events:
+    get:
+      tags: [Audit]
+      operationId: listEvents
+      summary: List redacted security events
+      description: Not implemented. Responses contain redacted payloads only.
+      security:
+        - humanSession: []
+      parameters:
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Event page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventPage"
+  /api/v1/incidents:
+    get:
+      tags: [Audit]
+      operationId: listIncidents
+      summary: List security incidents
+      description: Not implemented.
+      security:
+        - humanSession: []
+      responses:
+        "200":
+          description: Incident page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IncidentPage"
+  /api/v1/audit:
+    get:
+      tags: [Audit]
+      operationId: listAuditLinks
+      summary: List hash-chain links for the caller's organization
+      description: Not implemented. Links are verifiable with the gateway hash function.
+      security:
+        - humanSession: []
+      responses:
+        "200":
+          description: Audit page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditPage"
+  /api/v1/chaos/experiments:
+    post:
+      tags: [Chaos]
+      operationId: createChaosExperiment
+      summary: Start a chaos experiment
+      description: Not implemented. The endpoint must not report success until a scenario runner exists.
+      security:
+        - humanSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChaosCreate"
+      responses:
+        "501":
+          description: Explicitly unsupported until the chaos harness exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+  /api/v1/chaos/experiments/{experimentId}:
+    get:
+      tags: [Chaos]
+      operationId: getChaosExperiment
+      summary: Read one chaos experiment
+      description: Not implemented.
+      security:
+        - humanSession: []
+      parameters:
+        - $ref: "#/components/parameters/ExperimentId"
+      responses:
+        "404":
+          $ref: "#/components/responses/Error"
+components:
+  securitySchemes:
+    humanSession:
+      type: http
+      scheme: bearer
+      description: Bearer session from POST /api/v1/sessions. Agent signatures are rejected.
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    Cursor:
+      name: cursor
+      in: query
+      schema:
+        type: string
+    AgentId:
+      name: agentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    PolicyId:
+      name: policyId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ApprovalId:
+      name: approvalId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ExperimentId:
+      name: experimentId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+  schemas:
+    ErrorBody:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code, message, request_id]
+          properties:
+            code:
+              type: string
+              enum:
+                - unauthenticated
+                - forbidden
+                - validation_failed
+                - not_found
+                - conflict
+                - rate_limited
+                - approval_required
+                - approval_expired
+                - not_implemented
+                - internal_error
+            message:
+              type: string
+              description: Safe for clients. No stack traces, SQL, or secret values.
+            request_id:
+              type: string
+              format: uuid
+            details:
+              type: array
+              items:
+                type: object
+                additionalProperties: false
+                required: [field, issue]
+                properties:
+                  field:
+                    type: string
+                  issue:
+                    type: string
+    HealthLive:
+      type: object
+      required: [status, service, checks]
+      properties:
+        status:
+          const: ok
+        service:
+          const: control-plane
+        version:
+          type: string
+        environment:
+          type: string
+        checks:
+          type: object
+          required: [process, api]
+          properties:
+            process:
+              const: ok
+            api:
+              const: ok
+    HealthReady:
+      type: object
+      required: [status, service, reason, checks]
+      properties:
+        status:
+          type: string
+          enum: [ok, not_ready]
+        service:
+          const: control-plane
+        reason:
+          type: string
+        checks:
+          type: object
+          properties:
+            api:
+              const: ok
+    SessionCreate:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 12
+          maxLength: 128
+    Session:
+      type: object
+      additionalProperties: false
+      required: [token, token_type, expires_at, organization_id]
+      properties:
+        token:
+          type: string
+        token_type:
+          const: bearer
+        expires_at:
+          type: string
+          format: date-time
+        organization_id:
+          type: string
+          format: uuid
+    AgentCreate:
+      type: object
+      additionalProperties: false
+      required: [name, framework, public_key]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        framework:
+          type: string
+          enum: [langchain, langgraph, crewai, openai_agents, python, typescript, mcp, custom]
+        public_key:
+          type: string
+          description: Unpadded base64url of the raw 32-byte Ed25519 public key.
+          pattern: "^[A-Za-z0-9_-]{43}$"
+    CredentialRotate:
+      type: object
+      additionalProperties: false
+      required: [public_key]
+      properties:
+        public_key:
+          type: string
+          pattern: "^[A-Za-z0-9_-]{43}$"
+    Agent:
+      type: object
+      required: [id, organization_id, name, framework, status, credential_status, registered_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        framework:
+          type: string
+        status:
+          type: string
+          enum: [active, suspended, revoked]
+        credential_status:
+          type: string
+          enum: [active, rotated, revoked, none]
+        registered_at:
+          type: string
+          format: date-time
+        last_activity_at:
+          type: string
+          format: date-time
+          nullable: true
+    AgentPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Agent"
+        next_cursor:
+          type: string
+          nullable: true
+    Credential:
+      type: object
+      required: [id, agent_id, algorithm, fingerprint, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        agent_id:
+          type: string
+          format: uuid
+        algorithm:
+          const: ed25519
+        fingerprint:
+          type: string
+          description: Lowercase SHA-256 hex of the raw public key.
+          pattern: "^[0-9a-f]{64}$"
+        status:
+          type: string
+          enum: [active, rotated, revoked]
+    PolicyDocument:
+      type: object
+      additionalProperties: false
+      required: [permissions]
+      properties:
+        agent:
+          type: object
+          additionalProperties: false
+          properties:
+            id:
+              type: string
+        permissions:
+          type: object
+          additionalProperties: false
+          required: [allowed, denied, approval_required]
+          properties:
+            allowed:
+              type: array
+              items:
+                type: string
+            denied:
+              type: array
+              items:
+                type: string
+            approval_required:
+              type: array
+              items:
+                type: string
+    PolicyCreate:
+      type: object
+      additionalProperties: false
+      required: [name, scope, document]
+      properties:
+        name:
+          type: string
+        scope:
+          type: string
+          enum: [organization, agent]
+        agent_id:
+          type: string
+          format: uuid
+        document:
+          $ref: "#/components/schemas/PolicyDocument"
+    PolicyReplace:
+      type: object
+      additionalProperties: false
+      required: [document]
+      properties:
+        document:
+          $ref: "#/components/schemas/PolicyDocument"
+    Policy:
+      type: object
+      required: [id, organization_id, name, scope, status, current_version]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        scope:
+          type: string
+          enum: [organization, agent]
+        agent_id:
+          type: string
+          format: uuid
+          nullable: true
+        status:
+          type: string
+          enum: [draft, active, archived]
+        current_version:
+          type: integer
+          minimum: 1
+    PolicyPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Policy"
+    ApprovalCreate:
+      type: object
+      additionalProperties: false
+      required: [authorization_decision_id, payload_hash, expires_at]
+      properties:
+        authorization_decision_id:
+          type: string
+          format: uuid
+        payload_hash:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        expires_at:
+          type: string
+          format: date-time
+    Approval:
+      type: object
+      required: [id, organization_id, agent_id, status, payload_hash, expires_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        agent_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, approved, rejected, expired, consumed]
+        payload_hash:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+    ApprovalPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Approval"
+    SecurityEvent:
+      type: object
+      required: [id, organization_id, event_type, occurred_at, payload_redacted]
+      properties:
+        id:
+          type: string
+          format: uuid
+        organization_id:
+          type: string
+          format: uuid
+        agent_id:
+          type: string
+          format: uuid
+          nullable: true
+        execution_id:
+          type: string
+          format: uuid
+          nullable: true
+        event_type:
+          type: string
+        occurred_at:
+          type: string
+          format: date-time
+        payload_redacted:
+          type: object
+          additionalProperties: true
+    EventPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/SecurityEvent"
+    Incident:
+      type: object
+      required: [id, severity, status, title, detection_reason]
+      properties:
+        id:
+          type: string
+          format: uuid
+        severity:
+          type: string
+          enum: [low, medium, high, critical]
+        status:
+          type: string
+          enum: [open, investigating, resolved, false_positive]
+        title:
+          type: string
+        detection_reason:
+          type: string
+    IncidentPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Incident"
+    AuditLink:
+      type: object
+      required: [sequence, event_id, prev_hash, event_hash]
+      properties:
+        sequence:
+          type: integer
+          minimum: 1
+        event_id:
+          type: string
+          format: uuid
+        prev_hash:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        event_hash:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+    AuditPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditLink"
+    ChaosCreate:
+      type: object
+      additionalProperties: false
+      required: [agent_id, scenario_id]
+      properties:
+        agent_id:
+          type: string
+          format: uuid
+        scenario_id:
+          type: string

@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentshield.dev/schemas/policy/v1.json",
+  "title": "AgentShield policy document v1",
+  "description": "Document shape only. Evaluation rules live in docs/adr/0004-authorization-decisions.md. A resource rule cannot grant an action that the permission lists do not already allow or send to approval.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["permissions"],
+  "properties": {
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
+    "permissions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed", "denied", "approval_required"],
+      "properties": {
+        "allowed": { "$ref": "#/$defs/actionList" },
+        "denied": { "$ref": "#/$defs/actionList" },
+        "approval_required": { "$ref": "#/$defs/actionList" }
+      }
+    },
+    "resource_rules": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/resourceRule" }
+    }
+  },
+  "$defs": {
+    "action": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$",
+      "minLength": 3,
+      "maxLength": 128
+    },
+    "actionList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/action" }
+    },
+    "resourceRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effect", "action", "resource"],
+      "properties": {
+        "effect": { "type": "string", "enum": ["allow", "deny", "require_approval"] },
+        "action": { "$ref": "#/$defs/action" },
+        "resource": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    }
+  }
+}
