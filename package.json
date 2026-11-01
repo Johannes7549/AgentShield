@@ -2,17 +2,18 @@
   "name": "agentshield",
   "version": "0.1.0",
   "private": true,
-  "description": "AgentShield monorepo. Phase 1 enforcement path.",
+  "description": "AgentShield monorepo. Phase 2 SDKs and gateway integrations.",
   "engines": {
     "node": ">=20"
   },
   "workspaces": [
     "apps/control-plane",
-    "apps/dashboard"
+    "apps/dashboard",
+    "sdk/typescript"
   ],
   "scripts": {
-    "test": "npm test --workspace @agentshield/control-plane && npm test --workspace @agentshield/dashboard",
-    "lint": "npm run lint --workspace @agentshield/control-plane && npm run lint --workspace @agentshield/dashboard",
+    "test": "npm test --workspace @agentshield/control-plane && npm test --workspace @agentshield/dashboard && npm test --workspace @agentshield/sdk",
+    "lint": "npm run lint --workspace @agentshield/control-plane && npm run lint --workspace @agentshield/dashboard && npm run lint --workspace @agentshield/sdk",
     "build": "npm run build --workspace @agentshield/control-plane && npm run build --workspace @agentshield/dashboard"
   }
 }

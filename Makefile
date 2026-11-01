@@ -8,5 +8,5 @@ test:
 
 lint:
 	test -z "$$(gofmt -l runtime)"
-	python -m ruff check apps/intelligence-engine tests
+	python -m ruff check apps/intelligence-engine tests sdk/python integrations examples/sample-agent
 	npm run lint

@@ -40,13 +40,21 @@ Still out of scope:
 
 - Credential rotation, revocation, and suspension.
 - Human approval, rejection, and single-use consumption.
-- Rate limits, circuit breakers, and framework SDKs.
+- Rate limits and circuit breakers.
 
 ## Phase 2 — SDKs and integrations
 
-- Python and TypeScript SDKs that implement the same signing input.
-- LangGraph and MCP integrations that cannot bypass the gateway.
-- LangChain and CrewAI stay unsupported until those two are real.
+Done in this revision:
+
+- Python and TypeScript clients that sign the raw body bytes they send. Both match the Go signature vector in `runtime/identity`.
+- `call_tool` executes only after the gateway returns allow. Deny and require_approval stop before execute.
+- A LangGraph node and an MCP server that forward tool calls through that client. Neither accepts a local function.
+- LangChain and CrewAI stay unsupported. No wrapper is installed for them.
+
+Still out of scope:
+
+- Any gateway adapter other than `sample.echo`.
+- Human approval consumption, credential rotation, revocation, and suspension.
 
 ## Phase 3 — Approval and credential lifecycle
 

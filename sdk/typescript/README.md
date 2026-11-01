@@ -1,5 +1,9 @@
 # TypeScript SDK
 
-Status: not implemented.
+Status: implemented.
 
-This directory will hold the client that signs requests the way `runtime/identity` does and sends them to the gateway. No package is published from here.
+`@agentshield/sdk` signs the exact bytes it sends to the gateway. The signing input matches `runtime/identity` and the Python SDK, including the locked test vector. The seed stays in the caller process.
+
+`callTool` calls `execute` only when the outcome is `allow`. `deny` and `require_approval` throw. The client has no local tool runner and does not send `approval_id`.
+
+The gateway still executes only `sample.echo`.

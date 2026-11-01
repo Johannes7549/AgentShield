@@ -15,7 +15,7 @@ if ($unformatted) {
 }
 
 Write-Host "== ruff =="
-python -m ruff check apps/intelligence-engine tests
+python -m ruff check apps/intelligence-engine tests sdk/python integrations examples/sample-agent
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 Write-Host "== tsc =="
