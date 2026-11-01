@@ -1,6 +1,6 @@
 # AgentShield
 
-AgentShield is a security and reliability layer for autonomous agents. Tool calls are authenticated, authorized, and recorded outside the agent that requested them. This repository implements that path for one registered agent and the `sample.echo` adapter. It does not approve requests, rotate keys, or integrate a framework.
+AgentShield is a security and reliability layer for autonomous agents. Tool calls are authenticated, authorized, and recorded outside the agent that requested them. This repository implements that path for one registered agent and the `sample.echo` adapter. Python and TypeScript clients sign the request. LangGraph and MCP forward tool calls through those clients and cannot run a tool locally. The repository does not approve requests or rotate keys. LangChain and CrewAI are not integrated.
 
 The control plane and gateway answer liveness. Readiness is 200 only when their databases answer. The dashboard is still a shell and does not show live counts. `AGENTSHIELD_ENV=production` is refused.
 
@@ -13,12 +13,16 @@ apps/intelligence-engine    Python analysis process, not implemented
 runtime/gateway             Go enforcement process
 runtime/policy-engine       Deterministic allow, deny, and require_approval
 runtime/identity            Ed25519 request signatures
-examples/sample-agent       Demonstration Python caller, not an SDK
+sdk/python                  Python client. Signs the raw body it sends
+sdk/typescript              TypeScript client. Same signing input
+integrations/langgraph      LangGraph node that calls the Python client
+integrations/mcp            MCP server that calls the Python client
+examples/sample-agent       Demonstration that uses the Python client
 docs                        Architecture, security model, ADRs, OpenAPI
 infrastructure/docker       Compose and the PostgreSQL migration
 ```
 
-SDKs, framework integrations, and the chaos harness are documented as unsupported. They do not intercept tool calls.
+LangChain, CrewAI, and the chaos harness do not intercept tool calls.
 
 ## Decisions
 
@@ -75,7 +79,7 @@ $env:REDIS_URL = "redis://127.0.0.1:6379/0"
 go run ./runtime/gateway/cmd/gateway
 ```
 
-`examples/sample-agent/` is a signed caller for `sample.echo`. It is not a framework integration.
+`examples/sample-agent/` uses the Python SDK to call `sample.echo`. `integrations/langgraph` and `integrations/mcp` are the framework entry points. Both call the SDK and refuse a local tool function.
 
 ```powershell
 $env:PYTHONPATH = "apps/intelligence-engine"

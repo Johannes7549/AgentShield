@@ -69,4 +69,4 @@ The gateway body limit defaults to 1 MiB and cannot be configured higher, matchi
 - It does not provide a tamper-proof log against someone who can rewrite the database and every external copy of the head.
 - It does not scan dependencies in this repository's CI yet. That job belongs with the first release process, not with an empty lockfile story. Node lockfiles are generated locally and CI uses `npm ci` once they exist.
 
-Framework integrations do not wrap tools. Using LangChain, LangGraph, CrewAI, or MCP against this repository does not put those calls through AgentShield.
+The Python and TypeScript clients sign the body they send. LangGraph and MCP forward tool calls through those clients and have no local tool function. LangChain and CrewAI still do not wrap tools. Using them against this repository does not put those calls through AgentShield. The clients do not stop prompt injection, and they do not consume an approval.

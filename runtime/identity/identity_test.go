@@ -3,6 +3,7 @@ package identity
 import (
 	"bytes"
 	"crypto/ed25519"
+	"encoding/base64"
 	"errors"
 	"strings"
 	"testing"
@@ -99,6 +100,26 @@ func TestNonceShape(t *testing.T) {
 	}
 	if _, err := Sign(private, 1, "nonce.with.dots.present", []byte("body")); !errors.Is(err, ErrBadNonce) {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestSDKVector(t *testing.T) {
+	public, private := testKey(t)
+	body := []byte(`{"tool":"tickets.read"}`)
+	const wantInput = "1700000000.nonce-value-123456.c64754e077ed2605c1a851045e3a42681df935f7482c6819446c8744f857cc28"
+	if got := SigningInput(1_700_000_000, "nonce-value-123456", body); got != wantInput {
+		t.Fatalf("signing input = %s", got)
+	}
+	signature, err := Sign(private, 1_700_000_000, "nonce-value-123456", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const wantSignature = "fuxPrL6xKqaUrNI4eHSNfcIoPltHnPttEXvZdJL_tG2kYJ8L1Sy90OJNWpWczTkYrN9-y_oP9sCeloHIF2zoBA"
+	if signature != wantSignature {
+		t.Fatalf("signature = %s", signature)
+	}
+	if got := base64.RawURLEncoding.EncodeToString(public); got != "IVL40Zt5HSRFMkLhXy6rbLfP-ntqXtMAl5YOBpiB2xI" {
+		t.Fatalf("public key = %s", got)
 	}
 }
 

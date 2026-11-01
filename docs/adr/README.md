@@ -8,3 +8,4 @@
 - [0006 Data stores](0006-data-stores.md)
 - [0007 API contracts](0007-api-contracts.md)
 - [0008 Phase 1 enforcement](0008-phase-1-enforcement.md)
+- [0009 Phase 2 SDKs](0009-phase-2-sdks.md)

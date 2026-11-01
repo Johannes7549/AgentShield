@@ -23,7 +23,7 @@ Readiness returns 200 only after the process can reach the dependencies it needs
 
 ## Consequences
 
-Operators can demonstrate a signed tool call. They cannot yet rotate a key, approve a request, or point LangGraph at the gateway. The OpenAPI descriptions for the implemented routes no longer say "Not implemented". Routes that are still absent keep that sentence and still return 404.
+Operators can demonstrate a signed tool call. They cannot yet rotate a key or approve a request. The OpenAPI descriptions for the implemented routes no longer say "Not implemented". Routes that are still absent keep that sentence and still return 404. ADR 0009 supersedes the earlier limit that LangGraph could not be pointed at the gateway.
 
 ## Alternatives
 

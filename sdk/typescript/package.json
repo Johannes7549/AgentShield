@@ -1,0 +1,16 @@
+{
+  "name": "@agentshield/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AgentShield TypeScript client. Signs the raw body and sends it to the gateway.",
+  "scripts": {
+    "test": "tsx --test src/json.test.ts src/signing.test.ts src/client.test.ts",
+    "lint": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}
