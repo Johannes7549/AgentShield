@@ -2,7 +2,7 @@
 
 AgentShield is a security and reliability layer in front of tools used by autonomous agents. Agents do not decide whether their own tool calls are allowed. A gateway outside the agent runtime does.
 
-This revision authorizes a signed tool call and offers Python and TypeScript clients for that call. LangGraph and MCP can forward a tool call through those clients. They cannot run a tool themselves. The revision does not approve a request.
+This revision authorizes a signed tool call, lets a human approve or reject a pending request, and offers Python and TypeScript clients for that call. LangGraph and MCP can forward a tool call through those clients. They cannot run a tool themselves.
 
 ## System context
 
@@ -79,7 +79,7 @@ Phase 1 implements this path. It is recorded here so the gateway does not grow a
 6. Evaluate with the rules in ADR 0004.
 7. Apply rate and budget limits when those controls exist.
 8. Persist the invocation and the decision, and append the audit link, in one transaction.
-9. `allow` may be executed by a registered adapter. `deny` stops. `require_approval` persists an approval bound to the raw-body hash and stops.
+9. `allow` may be executed by a registered adapter. `deny` stops. `require_approval` persists an approval bound to the raw-body hash and stops until a human approves it. Execute then consumes that approval once.
 10. On any error, do not call the tool.
 
 `sample.echo` is the only registered adapter. It returns the operation and resource and does not call another system. An unknown tool is HTTP 501, not a fake success.
@@ -90,4 +90,4 @@ Phase 1 implements this path. It is recorded here so the gateway does not grow a
 
 ## What runs today
 
-The control plane registers agents and policy versions for a bootstrapped human session. The gateway verifies Ed25519 signatures, reserves nonces in Redis, evaluates allow, deny, and require_approval, and appends the audit chain. `sample.echo` is the only adapter, and it has no external side effect. Python and TypeScript clients, a LangGraph node, and an MCP server send calls to that gateway and do not execute tools themselves. Readiness is 200 only when the dependencies for that process answer. The dashboard is a shell and does not render counts. Production configuration is refused.
+The control plane registers agents, rotates and revokes their keys, and records human approval decisions. The gateway verifies Ed25519 signatures, reserves nonces in Redis, evaluates allow, deny, and require_approval, and appends the audit chain. An approved `sample.echo` call can be consumed once. That adapter has no external side effect. Python and TypeScript clients, a LangGraph node, and an MCP server send calls to that gateway and do not execute tools themselves. Readiness is 200 only when the dependencies for that process answer. The dashboard is a shell and does not render counts. Production configuration is refused.

@@ -10,7 +10,8 @@ info:
     `POST /api/v1/runtime/authorize` authenticates the agent signature, evaluates
     policy, and persists the decision. `allow` does not execute the tool.
     `POST /api/v1/runtime/execute` runs only the labeled `sample.echo` adapter.
-    Every other tool returns 501. Approval consumption is not implemented.
+    Every other tool returns 501. An approved request can be consumed once.
+    Rate limits are Not implemented.
 
     The gateway authenticates the agent from the signature headers and the
     registered public key. `organization_id` in the body is a claim. It is not
@@ -100,9 +101,11 @@ paths:
       summary: Execute a previously allowed tool call
       description: |
         Implemented. Replays the idempotency key and the prior decision.
-        A deny stays a deny. require_approval is not executed.
+        A deny stays a deny. require_approval runs only when the body carries
+        the id of an approved, unexpired approval for that decision. Consumption
+        is single-use. The approver cannot be the agent.
         The only registered adapter is sample.echo, and it has no external side effect.
-        Any other tool returns 501. Approval consumption is Not implemented.
+        Any other tool returns 501.
       security:
         - agentSignature: []
       parameters:

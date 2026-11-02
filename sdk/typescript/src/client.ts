@@ -119,8 +119,15 @@ export class Client {
     return decisionFrom(payload, idempotencyKey);
   }
 
-  async execute(decisionId: string, idempotencyKey: string): Promise<ExecuteResult> {
-    const body = encodeJson({ decision_id: decisionId, idempotency_key: idempotencyKey });
+  async execute(decisionId: string, idempotencyKey: string, approvalId?: string): Promise<ExecuteResult> {
+    const requestBody: Record<string, string> = {
+      decision_id: decisionId,
+      idempotency_key: idempotencyKey,
+    };
+    if (approvalId !== undefined) {
+      requestBody.approval_id = approvalId;
+    }
+    const body = encodeJson(requestBody);
     const payload = await this.post("/api/v1/runtime/execute", body, this.clock());
     if (payload.outcome !== "allow" || typeof payload.adapter !== "string") {
       throw errorFrom(payload, 200);

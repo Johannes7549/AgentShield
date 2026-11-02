@@ -58,8 +58,16 @@ Still out of scope:
 
 ## Phase 3 — Approval and credential lifecycle
 
-- Rotation, revocation, and suspension.
-- Human approval bound to the raw payload hash, with expiry, single use, and a prohibition on self-approval.
+Done in this revision:
+
+- Rotation replaces the active public key and marks the previous key rotated. Revocation retires the agent and its keys. Suspension blocks the agent and leaves the key in place.
+- A human owner, admin, or approver can approve or reject the pending row the gateway already inserted. The row keeps the raw-body hash, expires, and can be consumed once.
+- The approving user cannot have the same id as the agent. An agent credential cannot call the approval routes. Execute refuses a pending, expired, rejected, or self-approved row.
+
+Still out of scope:
+
+- Resuming a suspended agent.
+- Any gateway adapter other than `sample.echo`.
 
 ## Phase 4 — Reliability and behavior
 

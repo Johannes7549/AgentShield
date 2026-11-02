@@ -6,8 +6,9 @@ info:
     Contract for the NestJS control plane. `/health/live` and `/health/ready`
     are implemented. Ready returns 200 when PostgreSQL answers and 503 when it
     does not. Human sessions, agent registration, and policy versions are
-    implemented. Revocation, suspension, rotation, approval decisions, events,
-    incidents, audit reads, and chaos experiments are not.
+    implemented. Revocation, suspension, rotation, and approval decisions are
+    implemented. `POST /api/v1/approvals` stays closed. Events, incidents,
+    audit reads, and chaos experiments are not.
 
     Human callers authenticate with a bearer session. Agent signatures are
     rejected on these routes. Organization scope comes from the authenticated
@@ -153,7 +154,7 @@ paths:
       tags: [Agents]
       operationId: revokeAgent
       summary: Revoke an agent and its active credentials
-      description: Not implemented. Revocation is permanent for those credential records.
+      description: Implemented. Revocation is permanent for the agent and its credential records.
       security:
         - humanSession: []
       parameters:
@@ -172,7 +173,7 @@ paths:
       tags: [Agents]
       operationId: suspendAgent
       summary: Suspend an agent without retiring its key
-      description: Not implemented.
+      description: Implemented. The key stays active and the agent cannot call the gateway until a later phase resumes it.
       security:
         - humanSession: []
       parameters:
@@ -189,7 +190,7 @@ paths:
       tags: [Agents]
       operationId: rotateAgentCredential
       summary: Add a new public key and mark the previous key rotated
-      description: Not implemented. The server stores the public key only.
+      description: Implemented. The server stores the public key only and marks the previous active key rotated.
       security:
         - humanSession: []
       parameters:
@@ -270,7 +271,7 @@ paths:
       tags: [Approvals]
       operationId: listApprovals
       summary: List approval requests
-      description: Not implemented. Agents cannot call this route.
+      description: Implemented for owner, admin, and approver. Agents cannot call this route.
       security:
         - humanSession: []
       responses:
@@ -310,8 +311,9 @@ paths:
       operationId: approveRequest
       summary: Approve the exact bound payload
       description: |
-        Not implemented. The caller must be a human approver, admin, or owner
-        in the same organization. The approval binds to payload_hash and expires.
+        Implemented. The caller must be a human approver, admin, or owner
+        in the same organization. The same user id cannot approve an agent
+        with that id. The approval binds to payload_hash and expires.
       security:
         - humanSession: []
       parameters:
@@ -330,7 +332,7 @@ paths:
       tags: [Approvals]
       operationId: rejectRequest
       summary: Reject an approval request
-      description: Not implemented. A rejected approval cannot be replayed.
+      description: Implemented. A rejected approval cannot be replayed.
       security:
         - humanSession: []
       parameters:

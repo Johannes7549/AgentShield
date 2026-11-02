@@ -11,8 +11,9 @@ These OpenAPI documents are the target contract. Implementation status is separa
 | `POST /api/v1/sessions` | control plane | Implemented for a bootstrapped user |
 | `GET/POST /api/v1/agents`, `GET /api/v1/agents/{agentId}` | control plane | Implemented |
 | `GET/POST /api/v1/policies`, `PUT /api/v1/policies/{policyId}` | control plane | Implemented |
-| Agent revoke, suspend, and rotate | control plane | Not implemented |
-| Approval, event, incident, and audit routes | control plane | Not implemented |
+| Agent revoke, suspend, and rotate | control plane | Implemented |
+| `GET /api/v1/approvals`, approve, and reject | control plane | Implemented. `POST /api/v1/approvals` stays closed because the gateway inserts the row |
+| Event, incident, and audit routes | control plane | Not implemented |
 | `POST /api/v1/runtime/authorize` | gateway | Implemented |
 | `POST /api/v1/runtime/execute` | gateway | Implemented for `sample.echo` only. Other tools return 501 |
 | Chaos experiment routes | control plane | Not implemented |

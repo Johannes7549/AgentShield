@@ -46,7 +46,7 @@ export const areas: ConsoleArea[] = [
     id: "approvals",
     name: "Approval Requests",
     phase: "Phase 3",
-    status: "The gateway records require_approval. Human approval is not executable yet.",
+    status: "Humans can approve or reject a pending request. This console does not call that API.",
   },
   {
     id: "chaos",

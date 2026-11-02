@@ -211,7 +211,16 @@ func (p *Postgres) Finish(ctx context.Context, call authz.Executable, run func()
 		result.DecisionID = call.DecisionID
 		return result, nil
 	}
-	if status != "running" {
+	prior := "running"
+	if call.ApprovalID != "" {
+		prior = "awaiting_approval"
+		if status != prior {
+			return authz.ExecuteResult{}, authz.ErrConflict
+		}
+		if err := consumeApproval(ctx, tx, call, metadata); err != nil {
+			return authz.ExecuteResult{}, err
+		}
+	} else if status != prior {
 		return authz.ExecuteResult{}, authz.ErrConflict
 	}
 	payload, err := run()
@@ -227,8 +236,8 @@ func (p *Postgres) Finish(ctx context.Context, call authz.Executable, run func()
 	tag, err := tx.Exec(ctx, `
 		UPDATE executions
 		SET status = 'completed', ended_at = $3, metadata = $4::jsonb
-		WHERE organization_id = $1 AND id = $2 AND status = 'running'`,
-		call.OrganizationID, call.ExecutionID, occurred, string(encoded))
+		WHERE organization_id = $1 AND id = $2 AND status = $5`,
+		call.OrganizationID, call.ExecutionID, occurred, string(encoded), prior)
 	if err != nil {
 		return authz.ExecuteResult{}, err
 	}
@@ -280,6 +289,7 @@ func (p *Postgres) saveOnce(ctx context.Context, record authz.Record) (authz.Sav
 	occurred := time.Now().UTC().Truncate(time.Microsecond)
 	status := "completed"
 	var endedAt any = occurred
+	metadata := []byte(`{}`)
 	switch record.Decision.Outcome {
 	case policy.OutcomeAllow:
 		status = "running"
@@ -287,14 +297,19 @@ func (p *Postgres) saveOnce(ctx context.Context, record authz.Record) (authz.Sav
 	case policy.OutcomeRequireApproval:
 		status = "awaiting_approval"
 		endedAt = nil
+		encoded, err := json.Marshal(map[string]string{"payload_hash": record.RawBodyHash})
+		if err != nil {
+			return authz.Saved{}, err
+		}
+		metadata = encoded
 	}
 	var inserted string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO executions (organization_id, id, agent_id, status, started_at, ended_at, metadata)
-		VALUES ($1, $2, $3, $4, $5, $6, '{}'::jsonb)
+		VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
 		ON CONFLICT (organization_id, id) DO NOTHING
 		RETURNING id::text`,
-		record.OrganizationID, record.ExecutionID, record.AgentID, status, occurred, endedAt).Scan(&inserted)
+		record.OrganizationID, record.ExecutionID, record.AgentID, status, occurred, endedAt, string(metadata)).Scan(&inserted)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return authz.Saved{}, authz.ErrConflict
 	}
@@ -501,6 +516,54 @@ func appendAudit(ctx context.Context, tx pgx.Tx, organizationID string, agentID 
 	}
 	_, err = tx.Exec(ctx, `SELECT agentshield_append_audit_link($1, $2, $3, $4)`, organizationID, eventID, link.PrevHash, link.EventHash)
 	return err
+}
+
+func consumeApproval(ctx context.Context, tx pgx.Tx, call authz.Executable, executionMetadata string) error {
+	var bound struct {
+		PayloadHash string `json:"payload_hash"`
+	}
+	if err := json.Unmarshal([]byte(executionMetadata), &bound); err != nil || len(bound.PayloadHash) != 64 {
+		return authz.ErrApprovalBinding
+	}
+	var status, payloadHash, decisionID, agentID string
+	var expires time.Time
+	err := tx.QueryRow(ctx, `
+		SELECT status, payload_hash, authorization_decision_id::text, agent_id::text, expires_at
+		FROM approval_requests
+		WHERE id = $1 AND organization_id = $2
+		FOR UPDATE`, call.ApprovalID, call.OrganizationID).Scan(
+		&status, &payloadHash, &decisionID, &agentID, &expires)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return authz.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if decisionID != call.DecisionID || agentID != call.AgentID || payloadHash != bound.PayloadHash {
+		return authz.ErrApprovalBinding
+	}
+	if (status == "pending" || status == "approved") && !expires.After(time.Now()) {
+		return authz.ErrApprovalExpired
+	}
+	if status == "pending" {
+		return authz.ErrApprovalPending
+	}
+	if status != "approved" {
+		return authz.ErrConflict
+	}
+	tag, err := tx.Exec(ctx, `
+		UPDATE approval_requests
+		SET status = 'consumed', consumed_at = now()
+		WHERE id = $1 AND organization_id = $2 AND status = 'approved' AND consumed_at IS NULL
+		  AND decided_by IS NOT NULL AND decided_by <> agent_id`,
+		call.ApprovalID, call.OrganizationID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return authz.ErrApprovalBinding
+	}
+	return nil
 }
 
 func storedResult(metadata string) (authz.ExecuteResult, error) {

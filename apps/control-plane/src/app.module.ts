@@ -3,6 +3,8 @@ import { APP_FILTER } from "@nestjs/core";
 import { HumanSessionGuard, RolesGuard } from "./auth/guards";
 import { AgentsController } from "./agents/agents.controller";
 import { AgentsService } from "./agents/agents.service";
+import { ApprovalsController } from "./approvals/approvals.controller";
+import { ApprovalsService } from "./approvals/approvals.service";
 import { APP_CONFIG, loadConfig } from "./config/configuration";
 import { DATABASE_POOL, DatabaseLifecycle, createPool } from "./db/database";
 import { HealthController } from "./health/health.controller";
@@ -13,7 +15,7 @@ import { SessionsController } from "./sessions/sessions.controller";
 import { SessionsService } from "./sessions/sessions.service";
 
 @Module({
-  controllers: [HealthController, SessionsController, AgentsController, PoliciesController],
+  controllers: [HealthController, SessionsController, AgentsController, PoliciesController, ApprovalsController],
   providers: [
     {
       provide: APP_CONFIG,
@@ -30,6 +32,7 @@ import { SessionsService } from "./sessions/sessions.service";
     SessionsService,
     AgentsService,
     PoliciesService,
+    ApprovalsService,
     { provide: APP_FILTER, useClass: ApiExceptionFilter },
   ],
 })
