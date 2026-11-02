@@ -1,5 +1,5 @@
 # Chaos evaluator
 
-Status: not implemented.
+Status: implemented in `runtime/gateway/internal/chaos`.
 
-The evaluator will compare observed gateway behavior with the scenario's expected defensive property. It must not default a missing observation to pass.
+`judge` compares an observation with the scenario's defensive property. A missing observation is failed. An unknown scenario id is error, which is not a pass. The control plane stores that result on the experiment row.

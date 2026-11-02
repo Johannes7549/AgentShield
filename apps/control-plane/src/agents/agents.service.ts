@@ -3,6 +3,7 @@ import { createHash } from "crypto";
 import type { Pool, PoolClient } from "pg";
 import { appendAudit } from "../audit/append";
 import { DATABASE_POOL } from "../db/database";
+import { setOrganization } from "../db/organization";
 import { apiError } from "../http/errors";
 
 export interface AgentRecord {
@@ -29,6 +30,7 @@ export class AgentsService {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      await setOrganization(client, organizationId);
       const agent = await client.query<{ id: string }>(
         `INSERT INTO agents (organization_id, name, framework)
          VALUES ($1, $2, $3)
@@ -93,7 +95,7 @@ export class AgentsService {
     publicKey: Buffer,
   ): Promise<{ id: string; agent_id: string; algorithm: "ed25519"; fingerprint: string; status: "active" }> {
     const fingerprint = createHash("sha256").update(publicKey).digest("hex");
-    return this.transaction(async (client) => {
+    return this.transaction(organizationId, async (client) => {
       const status = await lockAgent(client, organizationId, agentId);
       if (status !== "active") {
         throw apiError(409, "conflict", "agent is not active");
@@ -147,7 +149,7 @@ export class AgentsService {
     agentId: string,
     next: "suspended" | "revoked",
   ): Promise<AgentRecord> {
-    await this.transaction(async (client) => {
+    await this.transaction(organizationId, async (client) => {
       const status = await lockAgent(client, organizationId, agentId);
       if (status === next) {
         return;
@@ -183,13 +185,14 @@ export class AgentsService {
     return agent;
   }
 
-  private async transaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {
+  private async transaction<T>(organizationId: string, work: (client: PoolClient) => Promise<T>): Promise<T> {
     const pool = this.requirePool();
     let last: unknown;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
+        await setOrganization(client, organizationId);
         const result = await work(client);
         await client.query("COMMIT");
         return result;

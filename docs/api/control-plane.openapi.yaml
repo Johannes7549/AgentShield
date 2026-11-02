@@ -8,8 +8,9 @@ info:
     does not. Human sessions, agent registration, and policy versions are
     implemented. Revocation, suspension, rotation, and approval decisions are
     implemented. `POST /api/v1/approvals` stays closed. Incident listing is
-    implemented for owner, admin, and auditor. Event reads, audit reads, and
-    chaos experiments are not.
+    implemented for owner, admin, and auditor. Event and audit reads are
+    implemented. Audit head export is implemented. Chaos experiments run the
+    catalog harness.
 
     Human callers authenticate with a bearer session. Agent signatures are
     rejected on these routes. Organization scope comes from the authenticated
@@ -350,7 +351,7 @@ paths:
       tags: [Audit]
       operationId: listEvents
       summary: List redacted security events
-      description: Not implemented. Responses contain redacted payloads only.
+      description: Implemented. Owner, admin, auditor, and operator can list redacted events for their organization.
       security:
         - humanSession: []
       parameters:
@@ -383,7 +384,7 @@ paths:
       tags: [Audit]
       operationId: listAuditLinks
       summary: List hash-chain links for the caller's organization
-      description: Not implemented. Links are verifiable with the gateway hash function.
+      description: Implemented. Owner, admin, and auditor can list links. Operator cannot.
       security:
         - humanSession: []
       responses:
@@ -393,12 +394,51 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuditPage"
+  /api/v1/audit/exports:
+    get:
+      tags: [Audit]
+      operationId: listAuditHeadExports
+      summary: List exported audit head copies
+      description: Implemented. Owner, admin, and auditor can list exports for their organization.
+      security:
+        - humanSession: []
+      responses:
+        "200":
+          description: Export page
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditExportPage"
+    post:
+      tags: [Audit]
+      operationId: exportAuditHead
+      summary: Export the current audit head hash
+      description: Implemented. Stores an external copy of the current organization head hash.
+      security:
+        - humanSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AuditExportCreate"
+      responses:
+        "201":
+          description: Stored export
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditExport"
   /api/v1/chaos/experiments:
     post:
       tags: [Chaos]
       operationId: createChaosExperiment
       summary: Start a chaos experiment
-      description: Not implemented. The endpoint must not report success until a scenario runner exists.
+      description: |
+        Implemented for owner and admin. Runs one enabled catalog scenario.
+        A missing observation is stored as failed. The response is the stored
+        result, and status passed is returned only when the harness observed
+        the defensive behavior.
       security:
         - humanSession: []
       requestBody:
@@ -408,8 +448,14 @@ paths:
             schema:
               $ref: "#/components/schemas/ChaosCreate"
       responses:
-        "501":
-          description: Explicitly unsupported until the chaos harness exists
+        "201":
+          description: Experiment finished. passed means the defensive behavior was observed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChaosExperiment"
+        "409":
+          description: The scenario is disabled
           content:
             application/json:
               schema:
@@ -419,12 +465,18 @@ paths:
       tags: [Chaos]
       operationId: getChaosExperiment
       summary: Read one chaos experiment
-      description: Not implemented.
+      description: Implemented for owner and admin. Returns the stored result for the caller's organization.
       security:
         - humanSession: []
       parameters:
         - $ref: "#/components/parameters/ExperimentId"
       responses:
+        "200":
+          description: Stored experiment
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChaosExperiment"
         "404":
           $ref: "#/components/responses/Error"
 components:
@@ -876,6 +928,65 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/AuditLink"
+    AuditExportCreate:
+      type: object
+      additionalProperties: false
+      required: [destination]
+      properties:
+        destination:
+          type: string
+          minLength: 1
+          maxLength: 256
+    AuditExport:
+      type: object
+      additionalProperties: false
+      required: [id, sequence, head_hash, exported_at, destination]
+      properties:
+        id:
+          type: string
+          format: uuid
+        sequence:
+          type: integer
+          minimum: 0
+        head_hash:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        exported_at:
+          type: string
+          format: date-time
+        destination:
+          type: string
+    AuditExportPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditExport"
+    ChaosExperiment:
+      type: object
+      additionalProperties: false
+      required: [id, scenario_id, agent_id, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        scenario_id:
+          type: string
+        agent_id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [pending, running, passed, failed, error]
+        actual_result:
+          type: object
+          additionalProperties: false
+          required: [reason]
+          properties:
+            reason:
+              type: string
     ChaosCreate:
       type: object
       additionalProperties: false

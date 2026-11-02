@@ -16,13 +16,13 @@ export const areas: ConsoleArea[] = [
     id: "overview",
     name: "Overview",
     phase: "Phase 6",
-    status: "No live posture counts are connected. This page does not invent metrics.",
+    status: "Live counts load from the control plane after sign-in. Empty means no rows, not a guessed number.",
   },
   {
     id: "agents",
     name: "Agents",
     phase: "Phase 1",
-    status: "The control plane registers agents. This console does not call it.",
+    status: "Agent rows load from the control plane after sign-in.",
   },
   {
     id: "runtime",
@@ -40,7 +40,7 @@ export const areas: ConsoleArea[] = [
     id: "incidents",
     name: "Incidents",
     phase: "Phase 4",
-    status: "Deterministic rules open incidents. This console does not list them.",
+    status: "Open incidents load from the control plane after sign-in.",
   },
   {
     id: "approvals",
@@ -52,13 +52,13 @@ export const areas: ConsoleArea[] = [
     id: "chaos",
     name: "Chaos Experiments",
     phase: "Phase 5",
-    status: "Scenario catalog is documentation only. Experiments cannot be launched.",
+    status: "An owner or admin can run a catalog scenario from the API. This console does not launch experiments.",
   },
   {
     id: "audit",
     name: "Audit Logs",
     phase: "Phase 1",
-    status: "The gateway appends hash-chain events. This console has no event reader.",
+    status: "Audit links load from the control plane. An operator can export a head-hash copy.",
   },
   {
     id: "analytics",

@@ -14,10 +14,11 @@ These OpenAPI documents are the target contract. Implementation status is separa
 | Agent revoke, suspend, and rotate | control plane | Implemented |
 | `GET /api/v1/approvals`, approve, and reject | control plane | Implemented. `POST /api/v1/approvals` stays closed because the gateway inserts the row |
 | `GET /api/v1/incidents` | control plane | Implemented for owner, admin, and auditor |
-| Event and audit routes | control plane | Not implemented |
+| `GET /api/v1/events` | control plane | Implemented for owner, admin, auditor, and operator |
+| `GET /api/v1/audit`, audit head export | control plane | Implemented for owner, admin, and auditor |
 | `POST /api/v1/runtime/authorize` | gateway | Implemented |
 | `POST /api/v1/runtime/execute` | gateway | Implemented for `sample.echo` only. Other tools return 501 |
-| Chaos experiment routes | control plane | Not implemented |
+| `POST /api/v1/chaos/experiments`, `GET /api/v1/chaos/experiments/{experimentId}` | control plane | Implemented for owner and admin. A missing observation is failed |
 
 The intelligence service publishes no analysis route. `analyze_untrusted_content` raises `AnalysisUnavailable`.
 

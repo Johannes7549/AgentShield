@@ -40,19 +40,29 @@ export class HumanSessionGuard implements CanActivate {
     let rows: { user_id: string; organization_id: string; role: Role }[];
     try {
       const result = await this.pool.query<{ user_id: string; organization_id: string; role: Role }>(
-        `SELECT s.user_id::text, s.organization_id::text, m.role
-         FROM user_sessions s
-         JOIN memberships m ON m.user_id = s.user_id AND m.organization_id = s.organization_id
-         JOIN users u ON u.id = s.user_id
-         WHERE s.token_hash = $1
-           AND s.revoked_at IS NULL
-           AND s.expires_at > now()
-           AND u.status = 'active'`,
+        `SELECT user_id::text, organization_id::text, role
+         FROM agentshield_resolve_session($1)`,
         [tokenHash],
       );
       rows = result.rows;
     } catch {
-      throw apiError(500, "internal_error", "internal error");
+      // Existing databases without 0004 still resolve sessions with a direct join.
+      try {
+        const result = await this.pool.query<{ user_id: string; organization_id: string; role: Role }>(
+          `SELECT s.user_id::text, s.organization_id::text, m.role
+           FROM user_sessions s
+           JOIN memberships m ON m.user_id = s.user_id AND m.organization_id = s.organization_id
+           JOIN users u ON u.id = s.user_id
+           WHERE s.token_hash = $1
+             AND s.revoked_at IS NULL
+             AND s.expires_at > now()
+             AND u.status = 'active'`,
+          [tokenHash],
+        );
+        rows = result.rows;
+      } catch {
+        throw apiError(500, "internal_error", "internal error");
+      }
     }
     if (rows.length !== 1) {
       throw apiError(401, "unauthenticated", "authentication failed");

@@ -9,8 +9,23 @@ describe("loadConfig", () => {
     expect(config.databaseUrl).toBeUndefined();
   });
 
-  it("refuses production mode", () => {
-    expect(() => loadConfig({ AGENTSHIELD_ENV: "production" })).toThrow(/production mode is refused/);
+  it("refuses production without the app role", () => {
+    expect(() => loadConfig({ AGENTSHIELD_ENV: "production" })).toThrow(/agentshield_app/);
+    expect(() =>
+      loadConfig({
+        AGENTSHIELD_ENV: "production",
+        DATABASE_URL: "postgres://agentshield:agentshield@127.0.0.1:5432/agentshield",
+      }),
+    ).toThrow(/agentshield_app/);
+  });
+
+  it("allows production with the app role", () => {
+    const config = loadConfig({
+      AGENTSHIELD_ENV: "production",
+      DATABASE_URL: "postgres://agentshield_app:agentshield-app@127.0.0.1:5432/agentshield",
+    });
+    expect(config.environment).toBe("production");
+    expect(config.enforceOrganizationIsolation).toBe(true);
   });
 
   it("rejects a non-postgres URL without echoing the secret", () => {

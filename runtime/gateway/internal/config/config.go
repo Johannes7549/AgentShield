@@ -25,6 +25,9 @@ const (
 	maximumShutdown  = time.Minute
 )
 
+// MaximumBodyBytes is the largest request body the gateway will read.
+func MaximumBodyBytes() int64 { return maximumBodyBytes }
+
 type Config struct {
 	Addr            string
 	Environment     string
@@ -45,7 +48,9 @@ func Load(getenv func(string) string) (Config, error) {
 	switch environment {
 	case "development", "test":
 	case "production":
-		return Config{}, errors.New("production mode is refused until a non-owner database role and row level security are in place")
+		if !isAppRoleURL(getenv("DATABASE_URL")) {
+			return Config{}, errors.New("production mode requires DATABASE_URL to use the agentshield_app role with row level security")
+		}
 	default:
 		return Config{}, fmt.Errorf("AGENTSHIELD_ENV %q is not supported", environment)
 	}
@@ -111,4 +116,21 @@ func validateAddr(addr string) error {
 		return errors.New("GATEWAY_HTTP_ADDR port is invalid")
 	}
 	return nil
+}
+
+func isAppRoleURL(databaseURL string) bool {
+	if databaseURL == "" {
+		return false
+	}
+	trimmed := strings.TrimPrefix(databaseURL, "postgres://")
+	trimmed = strings.TrimPrefix(trimmed, "postgresql://")
+	at := strings.Index(trimmed, "@")
+	if at <= 0 {
+		return false
+	}
+	userinfo := trimmed[:at]
+	if colon := strings.Index(userinfo, ":"); colon >= 0 {
+		userinfo = userinfo[:colon]
+	}
+	return userinfo == "agentshield_app"
 }

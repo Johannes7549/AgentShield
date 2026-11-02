@@ -5,6 +5,6 @@ export function liveHealth() {
     status: "ok" as const,
     service: "dashboard" as const,
     version: SERVICE_VERSION,
-    mode: "phase_0_shell" as const,
+    mode: "phase_6_console" as const,
   };
 }

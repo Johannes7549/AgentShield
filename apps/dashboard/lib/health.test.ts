@@ -4,11 +4,11 @@ import { liveHealth } from "./health";
 import { areas, services } from "./inventory";
 
 describe("dashboard foundation", () => {
-  it("describes a phase 0 shell", () => {
+  it("describes a phase 6 console", () => {
     const body = liveHealth();
     assert.equal(body.status, "ok");
     assert.equal(body.service, "dashboard");
-    assert.equal(body.mode, "phase_0_shell");
+    assert.equal(body.mode, "phase_6_console");
   });
 
   it("does not claim the gateway is ready", () => {

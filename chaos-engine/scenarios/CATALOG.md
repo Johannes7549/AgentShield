@@ -1,8 +1,6 @@
 # Chaos scenarios
 
-Status: specification only. Nothing here is executable, and no attack payload is included.
-
-A later harness must record a failure when the expected defensive behavior is not observed. A missing result is not a pass. Scenarios stay disabled in `chaos_scenarios.enabled` until that harness exists.
+Status: executable. `runtime/gateway/internal/chaos` runs every scenario below. A missing observation is a failure. The probes use fixtures, not attack payloads. Catalog rows are enabled.
 
 | Scenario id | Defensive property |
 | --- | --- |

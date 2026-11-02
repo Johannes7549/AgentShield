@@ -2,9 +2,12 @@ package httpserver
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -44,6 +47,12 @@ type handler struct {
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
+	traceID := traceHex(16)
+	spanID := traceHex(8)
+	defer func() {
+		slog.Info("otel", "trace_id", traceID, "span_id", spanID, "name", r.Method+" "+r.URL.Path, "duration_ms", time.Since(started).Milliseconds())
+	}()
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/health/live":
 		authorization := "not_configured"
@@ -68,6 +77,14 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusNotFound, "not_found", "not found")
 	}
+}
+
+func traceHex(n int) string {
+	buf := make([]byte, n)
+	if _, err := rand.Read(buf); err != nil {
+		return hex.EncodeToString(make([]byte, n))
+	}
+	return hex.EncodeToString(buf)
 }
 
 func (h *handler) serveReady(w http.ResponseWriter, r *http.Request) {

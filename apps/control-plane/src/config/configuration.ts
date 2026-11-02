@@ -35,6 +35,7 @@ export interface AppConfig {
   host: string;
   port: number;
   databaseUrl?: string;
+  enforceOrganizationIsolation: boolean;
 }
 
 export const APP_CONFIG = Symbol("APP_CONFIG");
@@ -45,17 +46,31 @@ export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
     const fields = parsed.error.issues.map((issue) => issue.path.join(".") || "configuration").join(", ");
     throw new Error(`invalid control plane configuration: ${fields}`);
   }
-  if (parsed.data.AGENTSHIELD_ENV === "production") {
+  const databaseUrl = parsed.data.DATABASE_URL;
+  const appRole = isAppRoleUrl(databaseUrl);
+  if (parsed.data.AGENTSHIELD_ENV === "production" && !appRole) {
     throw new Error(
-      "production mode is refused until a non-owner database role and row level security are in place",
+      "production mode requires DATABASE_URL to use the agentshield_app role with row level security",
     );
   }
   return {
     environment: parsed.data.AGENTSHIELD_ENV,
     host: parsed.data.CONTROL_PLANE_HOST,
     port: parsed.data.CONTROL_PLANE_PORT,
-    databaseUrl: parsed.data.DATABASE_URL,
+    databaseUrl,
+    enforceOrganizationIsolation: appRole,
   };
+}
+
+export function isAppRoleUrl(value: string | undefined): boolean {
+  if (!value) {
+    return false;
+  }
+  try {
+    return new URL(value).username === "agentshield_app";
+  } catch {
+    return false;
+  }
 }
 
 function isPostgresUrl(value: string): boolean {

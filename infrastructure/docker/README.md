@@ -6,6 +6,6 @@ The Postgres image runs every SQL file in `postgres/migrations` on first volume 
 
 MinIO's own images are no longer published for anonymous download. Compose uses `cgr.dev/chainguard/minio` and `cgr.dev/chainguard/minio-client`. The server runs as uid 65532, and `minio-perms` gives that user the data volume. The client image has no shell, so bucket creation is one `mc mb --ignore-existing` command that Compose restarts until MinIO answers.
 
-Images are floating tags. Pin them by digest before any shared environment.
+PostgreSQL, Redis, NATS, and Busybox are pinned by digest in `docker-compose.yml`. Chainguard MinIO images stay on floating tags until a digest can be recorded from a reachable registry. Apply `0004_app_role_rls.sql` on an existing volume before pointing processes at `agentshield_app`.
 
 Kubernetes manifests are not in this revision. See `../kubernetes/README.md`.
