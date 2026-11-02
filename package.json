@@ -2,7 +2,7 @@
   "name": "agentshield",
   "version": "0.1.0",
   "private": true,
-  "description": "AgentShield monorepo. Phase 3 credential lifecycle and approval consumption.",
+  "description": "AgentShield monorepo. Phase 4 limits, circuit breaker, and behavioral incidents.",
   "engines": {
     "node": ">=20"
   },

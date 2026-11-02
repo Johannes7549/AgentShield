@@ -7,8 +7,9 @@ info:
     are implemented. Ready returns 200 when PostgreSQL answers and 503 when it
     does not. Human sessions, agent registration, and policy versions are
     implemented. Revocation, suspension, rotation, and approval decisions are
-    implemented. `POST /api/v1/approvals` stays closed. Events, incidents,
-    audit reads, and chaos experiments are not.
+    implemented. `POST /api/v1/approvals` stays closed. Incident listing is
+    implemented for owner, admin, and auditor. Event reads, audit reads, and
+    chaos experiments are not.
 
     Human callers authenticate with a bearer session. Agent signatures are
     rejected on these routes. Organization scope comes from the authenticated
@@ -367,7 +368,7 @@ paths:
       tags: [Audit]
       operationId: listIncidents
       summary: List security incidents
-      description: Not implemented.
+      description: Implemented. Owner, admin, and auditor sessions can list incidents for their organization.
       security:
         - humanSession: []
       responses:

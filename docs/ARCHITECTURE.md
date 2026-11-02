@@ -77,7 +77,7 @@ Phase 1 implements this path. It is recorded here so the gateway does not grow a
 4. Load the agent and active credential. Deny unless status is active and the organization claim matches.
 5. Load the active organization policy and the active agent policy.
 6. Evaluate with the rules in ADR 0004.
-7. Apply rate and budget limits when those controls exist.
+7. Apply the Redis request, tool-call, and token budgets. A breach stops before a decision is stored.
 8. Persist the invocation and the decision, and append the audit link, in one transaction.
 9. `allow` may be executed by a registered adapter. `deny` stops. `require_approval` persists an approval bound to the raw-body hash and stops until a human approves it. Execute then consumes that approval once.
 10. On any error, do not call the tool.
@@ -90,4 +90,4 @@ Phase 1 implements this path. It is recorded here so the gateway does not grow a
 
 ## What runs today
 
-The control plane registers agents, rotates and revokes their keys, and records human approval decisions. The gateway verifies Ed25519 signatures, reserves nonces in Redis, evaluates allow, deny, and require_approval, and appends the audit chain. An approved `sample.echo` call can be consumed once. That adapter has no external side effect. Python and TypeScript clients, a LangGraph node, and an MCP server send calls to that gateway and do not execute tools themselves. Readiness is 200 only when the dependencies for that process answer. The dashboard is a shell and does not render counts. Production configuration is refused.
+The control plane registers agents, rotates and revokes their keys, records human approval decisions, and lists incidents for an owner, admin, or auditor. The gateway verifies Ed25519 signatures, reserves nonces in Redis, applies request, tool-call, and token budgets, evaluates allow, deny, and require_approval, and appends the audit chain. Oversized arguments and a burst of denies open incidents without changing the policy outcome. An approved `sample.echo` call can be consumed once, with a two-second adapter deadline and a circuit that opens after repeated adapter failures. That adapter has no external side effect. Python and TypeScript clients, a LangGraph node, and an MCP server send calls to that gateway and do not execute tools themselves. Readiness is 200 only when the dependencies for that process answer. The dashboard is a shell and does not render counts. Production configuration is refused.

@@ -13,6 +13,7 @@ import (
 	"github.com/agentshield/agentshield/runtime/gateway/internal/authz"
 	"github.com/agentshield/agentshield/runtime/gateway/internal/config"
 	"github.com/agentshield/agentshield/runtime/gateway/internal/httpserver"
+	"github.com/agentshield/agentshield/runtime/gateway/internal/limits"
 	"github.com/agentshield/agentshield/runtime/gateway/internal/nonce"
 	"github.com/agentshield/agentshield/runtime/gateway/internal/store"
 )
@@ -48,6 +49,8 @@ func main() {
 			Policies:  store.PolicyReader{DB: postgres},
 			Store:     store.Decisions{DB: postgres},
 			Nonces:    nonce.New(client),
+			Limits:    limits.NewLimiter(client),
+			Breaker:   limits.NewBreaker(client),
 		}
 		ready = func(ctx context.Context) error {
 			if err := pool.Ping(ctx); err != nil {

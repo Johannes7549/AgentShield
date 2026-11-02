@@ -40,7 +40,7 @@ export const areas: ConsoleArea[] = [
     id: "incidents",
     name: "Incidents",
     phase: "Phase 4",
-    status: "Incident storage exists in the schema. Detection rules are not running.",
+    status: "Deterministic rules open incidents. This console does not list them.",
   },
   {
     id: "approvals",

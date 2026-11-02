@@ -36,11 +36,7 @@ Done in this revision:
 - A sample Python caller in `examples/sample-agent/`.
 - Security tests for default deny, explicit deny, organization mismatch, bad signatures, replay, and a PostgreSQL rollback of the audit insert.
 
-Still out of scope:
-
-- Credential rotation, revocation, and suspension.
-- Human approval, rejection, and single-use consumption.
-- Rate limits and circuit breakers.
+Deferred items from this phase are covered by Phase 3 and Phase 4.
 
 ## Phase 2 — SDKs and integrations
 
@@ -54,7 +50,6 @@ Done in this revision:
 Still out of scope:
 
 - Any gateway adapter other than `sample.echo`.
-- Human approval consumption, credential rotation, revocation, and suspension.
 
 ## Phase 3 — Approval and credential lifecycle
 
@@ -71,8 +66,16 @@ Still out of scope:
 
 ## Phase 4 — Reliability and behavior
 
-- Timeouts, tool-call limits, token budgets, rate limits, circuit breakers, and idempotent side effects.
-- Deterministic behavioral rules and incidents. Model scoring stays optional and non-authoritative.
+Done in this revision:
+
+- Redis request, tool-call, and token budgets. A breach returns 429 and does not store a decision.
+- A two-second adapter deadline, and a circuit that opens for 30 seconds after five adapter failures. A completed execution still returns its stored result.
+- Deterministic incidents for oversized arguments and a burst of denies. The policy outcome does not change. Owner, admin, and auditor can list incidents.
+
+Still out of scope:
+
+- Model scoring. It stays non-authoritative and is not called.
+- Any gateway adapter other than `sample.echo`.
 
 ## Phase 5 — Chaos harness
 

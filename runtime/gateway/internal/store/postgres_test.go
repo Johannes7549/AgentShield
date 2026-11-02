@@ -15,6 +15,7 @@ import (
 	"github.com/agentshield/agentshield/runtime/gateway/internal/authz"
 	"github.com/agentshield/agentshield/runtime/gateway/internal/idgen"
 	"github.com/agentshield/agentshield/runtime/gateway/internal/jsondoc"
+	"github.com/agentshield/agentshield/runtime/gateway/internal/limits"
 	"github.com/agentshield/agentshield/runtime/identity"
 	"github.com/agentshield/agentshield/runtime/policy-engine"
 )
@@ -274,6 +275,67 @@ func TestRecordDecisionRollsBack(t *testing.T) {
 	}
 	if approvalStatus != "consumed" {
 		t.Fatalf("approval status = %s", approvalStatus)
+	}
+
+	for _, suffix := range []string{"a", "b", "c", "d"} {
+		execution, err := idgen.New()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := decisions.Record(ctx, authz.Record{
+			OrganizationID: orgID, AgentID: agentID, ExecutionID: execution,
+			IdempotencyKey: "idempotency-deny-" + suffix, ToolName: "sample.echo", Operation: "database.export",
+			Resource: "customers", ArgumentsHash: hex.EncodeToString(sum[:]), ArgumentsRedacted: []byte(`{}`),
+			RequestedAt: time.Now().UTC(), Decision: decision, RawBodyHash: hex.EncodeToString(sum[:]), Risk: "low",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var bursts int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM security_incidents WHERE organization_id = $1 AND detection_reason = 'deny_burst'`, orgID).Scan(&bursts); err != nil {
+		t.Fatal(err)
+	}
+	if bursts != 1 {
+		t.Fatalf("deny incidents = %d", bursts)
+	}
+	sixth, err := idgen.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decisions.Record(ctx, authz.Record{
+		OrganizationID: orgID, AgentID: agentID, ExecutionID: sixth,
+		IdempotencyKey: "idempotency-deny-e", ToolName: "sample.echo", Operation: "database.export",
+		Resource: "customers", ArgumentsHash: hex.EncodeToString(sum[:]), ArgumentsRedacted: []byte(`{}`),
+		RequestedAt: time.Now().UTC(), Decision: decision, RawBodyHash: hex.EncodeToString(sum[:]), Risk: "low",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM security_incidents WHERE organization_id = $1 AND detection_reason = 'deny_burst'`, orgID).Scan(&bursts); err != nil {
+		t.Fatal(err)
+	}
+	if bursts != 1 {
+		t.Fatalf("later denies opened %d incidents", bursts)
+	}
+	wideExecution, err := idgen.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wide, err := decisions.Record(ctx, authz.Record{
+		OrganizationID: orgID, AgentID: agentID, ExecutionID: wideExecution,
+		IdempotencyKey: "idempotency-wide-arg", ToolName: "sample.echo", Operation: "sample.echo",
+		Resource: "demo", ArgumentsHash: hex.EncodeToString(sum[:]), ArgumentsRedacted: []byte(`{}`),
+		ArgumentBytes: limits.ArgumentByteLimit + 1, RequestedAt: time.Now().UTC(), Decision: allowed,
+		RawBodyHash: strings.Repeat("cd", 32), Risk: "none",
+	})
+	if err != nil || wide.Outcome != "allow" {
+		t.Fatalf("wide = %+v err = %v", wide, err)
+	}
+	var wideCount int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM security_incidents WHERE organization_id = $1 AND detection_reason = 'oversized_arguments'`, orgID).Scan(&wideCount); err != nil {
+		t.Fatal(err)
+	}
+	if wideCount != 1 {
+		t.Fatalf("size incidents = %d", wideCount)
 	}
 
 	var count int
