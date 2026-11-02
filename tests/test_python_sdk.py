@@ -157,6 +157,25 @@ class ClientTests(unittest.TestCase):
             ],
         )
 
+    def test_execute_sends_an_approval_id_only_when_asked(self) -> None:
+        seen = []
+
+        def transport(url, body, headers):
+            seen.append(body)
+            payload = {
+                "decision_id": DECISION,
+                "outcome": "allow",
+                "adapter": "sample.echo",
+                "result": {},
+            }
+            return 200, json.dumps(payload).encode("utf-8")
+
+        client = self._client(transport)
+        client.execute(DECISION, "idem-fixed-key-123")
+        self.assertNotIn(b"approval_id", seen[0])
+        client.execute(DECISION, "idem-fixed-key-123", "55555555-5555-4555-8555-555555555555")
+        self.assertIn(b"approval_id", seen[1])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -36,7 +36,7 @@ Row level security is not enabled. Enabling it before the application sets a ses
 
 ## Approval binding
 
-An approval stores the SHA-256 of the exact raw request body. The gateway inserts a pending row when the decision is `require_approval`, with a 15-minute expiry. Approving, rejecting, and consuming that row is not implemented. An agent still cannot call the approval routes.
+An approval stores the SHA-256 of the exact raw request body. The gateway inserts a pending row when the decision is `require_approval`, with a 15-minute expiry. An owner, admin, or approver can approve or reject that row. The approving user's id cannot equal the agent id, and an agent credential cannot call the approval routes. Execute consumes an approved, unexpired row once, and only when its hash matches the hash stored with the execution. A second execution of the completed call returns the stored result and does not consume another approval.
 
 ## Audit
 
@@ -63,10 +63,10 @@ The gateway body limit defaults to 1 MiB and cannot be configured higher, matchi
 ## What this revision does not claim
 
 - It does not stop prompt injection. No detector is implemented, and a future detector will not be an authorization oracle.
-- It does not approve or consume a `require_approval` decision. The gateway records the request and stops.
+- It does not resume a suspended agent. Revocation is permanent in this revision.
 - It does not execute any tool except `sample.echo`. That adapter does not call a network, database, or shell.
 - It does not isolate tenants against a database owner.
 - It does not provide a tamper-proof log against someone who can rewrite the database and every external copy of the head.
 - It does not scan dependencies in this repository's CI yet. That job belongs with the first release process, not with an empty lockfile story. Node lockfiles are generated locally and CI uses `npm ci` once they exist.
 
-The Python and TypeScript clients sign the body they send. LangGraph and MCP forward tool calls through those clients and have no local tool function. LangChain and CrewAI still do not wrap tools. Using them against this repository does not put those calls through AgentShield. The clients do not stop prompt injection, and they do not consume an approval.
+The Python and TypeScript clients sign the body they send. `execute` can present an approval id after a human approves. `call_tool` still stops on deny and require_approval. LangGraph and MCP forward tool calls through those clients and have no local tool function. LangChain and CrewAI still do not wrap tools. The clients do not stop prompt injection.

@@ -64,6 +64,29 @@ func TestHashRejectsUppercasePrevHash(t *testing.T) {
 	}
 }
 
+func TestApprovalDecisionVector(t *testing.T) {
+	at := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
+	link, err := Hash(GenesisPrevHash, Event{
+		EventID:         "11111111-1111-4111-8111-111111111111",
+		OrganizationID:  "22222222-2222-4222-8222-222222222222",
+		EventType:       "approval.decided",
+		OccurredAt:      at,
+		PayloadRedacted: []byte(`{"approval_id":"33333333-3333-4333-8333-333333333333","decision":"approved"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := at.UTC().Format("2006-01-02T15:04:05.000000000Z"); got != "2026-11-02T12:00:00.000000000Z" {
+		t.Fatalf("occurred_at = %s", got)
+	}
+	if link.PayloadHash != "e172888566ddcc86ced6b953f71bdf80be916b1b9c09b2f068581a55c35f6b39" {
+		t.Fatalf("payload hash = %s", link.PayloadHash)
+	}
+	if link.EventHash != "1e32b77235a3c79d4539a33599dbed607617605e2e2bc8f032978324c2d76df6" {
+		t.Fatalf("event hash = %s", link.EventHash)
+	}
+}
+
 func TestCanonicalSortsPolicyKeys(t *testing.T) {
 	got, err := Canonical(map[string]any{
 		"permissions": map[string]any{

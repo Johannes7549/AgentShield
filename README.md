@@ -1,6 +1,6 @@
 # AgentShield
 
-AgentShield is a security and reliability layer for autonomous agents. Tool calls are authenticated, authorized, and recorded outside the agent that requested them. This repository implements that path for one registered agent and the `sample.echo` adapter. Python and TypeScript clients sign the request. LangGraph and MCP forward tool calls through those clients and cannot run a tool locally. The repository does not approve requests or rotate keys. LangChain and CrewAI are not integrated.
+AgentShield is a security and reliability layer for autonomous agents. Tool calls are authenticated, authorized, and recorded outside the agent that requested them. This repository implements that path for one registered agent and the `sample.echo` adapter. Owners can rotate, suspend, and revoke credentials. An approver can approve or reject a pending request, and the gateway consumes an approval once. Python and TypeScript clients sign the request. LangGraph and MCP forward tool calls through those clients and cannot run a tool locally. LangChain and CrewAI are not integrated.
 
 The control plane and gateway answer liveness. Readiness is 200 only when their databases answer. The dashboard is still a shell and does not show live counts. `AGENTSHIELD_ENV=production` is refused.
 

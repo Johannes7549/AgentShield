@@ -27,8 +27,11 @@ import (
 )
 
 var (
-	ErrNotFound = errors.New("not found")
-	ErrConflict = errors.New("conflict")
+	ErrNotFound        = errors.New("not found")
+	ErrConflict        = errors.New("conflict")
+	ErrApprovalPending = errors.New("approval pending")
+	ErrApprovalExpired = errors.New("approval expired")
+	ErrApprovalBinding = errors.New("approval binding")
 
 	uuidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	toolPattern = regexp.MustCompile(`^[A-Za-z0-9_.:-]{1,128}$`)
@@ -100,6 +103,7 @@ type Executable struct {
 	Operation      string
 	Resource       string
 	IdempotencyKey string
+	ApprovalID     string
 }
 
 type Store interface {
@@ -147,8 +151,8 @@ func (s *Service) Authorize(ctx context.Context, body []byte, headers Headers) (
 	if decoded.AgentID != principal.AgentID {
 		return s.record(ctx, principal, decoded, body, policy.Deny("body agent_id does not match the authenticated agent"))
 	}
-	if principal.Status != "active" || principal.CredentialStatus != "active" {
-		return s.record(ctx, principal, decoded, body, policy.Deny("agent credential is not active"))
+	if reason := inactiveReason(principal); reason != "" {
+		return s.record(ctx, principal, decoded, body, policy.Deny(reason))
 	}
 	if decoded.OrganizationID != principal.OrganizationID {
 		return s.record(ctx, principal, decoded, body, policy.Deny("organization claim does not match the authenticated agent"))
@@ -174,11 +178,8 @@ func (s *Service) Execute(ctx context.Context, body []byte, headers Headers) (Ex
 	if err != nil {
 		return ExecuteResult{}, err
 	}
-	if principal.Status != "active" || principal.CredentialStatus != "active" {
-		return ExecuteResult{}, fail(http.StatusForbidden, "forbidden", "agent credential is not active")
-	}
-	if decoded.ApprovalID != "" {
-		return ExecuteResult{}, fail(http.StatusConflict, "not_implemented", "approval consumption is not implemented")
+	if reason := inactiveReason(principal); reason != "" {
+		return ExecuteResult{}, fail(http.StatusForbidden, "forbidden", reason)
 	}
 	call, err := s.Store.Load(ctx, principal.OrganizationID, principal.AgentID, decoded.DecisionID)
 	if errors.Is(err, ErrNotFound) {
@@ -194,8 +195,14 @@ func (s *Service) Execute(ctx context.Context, body []byte, headers Headers) (Ex
 	case policy.OutcomeDeny:
 		return ExecuteResult{}, fail(http.StatusForbidden, "forbidden", "decision is deny")
 	case policy.OutcomeRequireApproval:
-		return ExecuteResult{}, fail(http.StatusConflict, "approval_required", "decision requires approval")
+		if decoded.ApprovalID == "" {
+			return ExecuteResult{}, fail(http.StatusConflict, "approval_required", "decision requires approval")
+		}
+		call.ApprovalID = decoded.ApprovalID
 	case policy.OutcomeAllow:
+		if decoded.ApprovalID != "" {
+			return ExecuteResult{}, fail(http.StatusConflict, "conflict", "approval does not apply to this decision")
+		}
 	default:
 		return ExecuteResult{}, fail(http.StatusInternalServerError, "internal_error", "internal error")
 	}
@@ -217,6 +224,15 @@ func (s *Service) Execute(ctx context.Context, body []byte, headers Headers) (Ex
 		}
 		return payload, nil
 	})
+	if errors.Is(err, ErrApprovalPending) {
+		return ExecuteResult{}, fail(http.StatusConflict, "approval_required", "decision requires approval")
+	}
+	if errors.Is(err, ErrApprovalExpired) {
+		return ExecuteResult{}, fail(http.StatusConflict, "approval_expired", "approval has expired")
+	}
+	if errors.Is(err, ErrApprovalBinding) {
+		return ExecuteResult{}, fail(http.StatusConflict, "conflict", "approval does not match this decision")
+	}
 	if errors.Is(err, ErrConflict) {
 		return ExecuteResult{}, fail(http.StatusConflict, "conflict", "execution cannot be completed")
 	}
@@ -327,6 +343,19 @@ func (s *Service) now() time.Time {
 		return s.Now()
 	}
 	return time.Now()
+}
+
+func inactiveReason(principal Principal) string {
+	switch principal.Status {
+	case "suspended":
+		return "agent is suspended"
+	case "revoked":
+		return "agent is revoked"
+	}
+	if principal.Status != "active" || principal.CredentialStatus != "active" {
+		return "agent credential is not active"
+	}
+	return ""
 }
 
 func risk(outcome policy.Outcome) string {

@@ -75,8 +75,16 @@ class Client:
         payload = self._post("/api/v1/runtime/authorize", body, timestamp)
         return _decision(payload, key)
 
-    def execute(self, decision_id: str, idempotency_key: str) -> ExecuteResult:
-        body = encode_json({"decision_id": decision_id, "idempotency_key": idempotency_key})
+    def execute(
+        self,
+        decision_id: str,
+        idempotency_key: str,
+        approval_id: str | None = None,
+    ) -> ExecuteResult:
+        payload: dict[str, str] = {"decision_id": decision_id, "idempotency_key": idempotency_key}
+        if approval_id is not None:
+            payload["approval_id"] = approval_id
+        body = encode_json(payload)
         payload = self._post("/api/v1/runtime/execute", body, self._clock())
         if payload.get("outcome") != "allow" or "adapter" not in payload:
             raise _error(payload, 200)

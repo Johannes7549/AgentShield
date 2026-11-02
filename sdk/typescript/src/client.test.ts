@@ -121,3 +121,26 @@ test("callTool executes only after allow", async () => {
     "http://127.0.0.1:8081/api/v1/runtime/execute",
   ]);
 });
+
+test("execute sends an approval id only when asked", async () => {
+  const seen: string[] = [];
+  const transport: Transport = async (_url, body) => {
+    seen.push(body.toString("utf8"));
+    return {
+      status: 200,
+      body: Buffer.from(
+        JSON.stringify({
+          decision_id: DECISION,
+          outcome: "allow",
+          adapter: "sample.echo",
+          result: {},
+        }),
+      ),
+    };
+  };
+  const caller = client(transport);
+  await caller.execute(DECISION, "idem-fixed-key-123");
+  await caller.execute(DECISION, "idem-fixed-key-123", "55555555-5555-4555-8555-555555555555");
+  assert.equal(seen[0]?.includes("approval_id"), false);
+  assert.equal(seen[1]?.includes("approval_id"), true);
+});

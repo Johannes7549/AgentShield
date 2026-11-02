@@ -15,6 +15,8 @@ const createSchema = z
   })
   .strict();
 
+const rotateSchema = z.object({ public_key: z.string().regex(/^[A-Za-z0-9_-]{43}$/) }).strict();
+
 @Controller("v1/agents")
 @UseGuards(HumanSessionGuard, RolesGuard)
 export class AgentsController {
@@ -48,6 +50,37 @@ export class AgentsController {
     return this.agents.list(principal(request).organizationId, parseLimit(limit), parseCursor(cursor));
   }
 
+  @Post(":agentId/suspend")
+  @Roles("owner", "admin")
+  async suspend(@Req() request: RequestWithPrincipal, @Param("agentId") agentId: string): Promise<AgentRecord> {
+    return this.agents.suspend(principal(request).organizationId, agentParam(agentId));
+  }
+
+  @Post(":agentId/revoke")
+  @Roles("owner", "admin")
+  async revoke(@Req() request: RequestWithPrincipal, @Param("agentId") agentId: string): Promise<AgentRecord> {
+    return this.agents.revoke(principal(request).organizationId, agentParam(agentId));
+  }
+
+  @Post(":agentId/credentials/rotate")
+  @HttpCode(201)
+  @Roles("owner", "admin")
+  async rotate(
+    @Req() request: RequestWithPrincipal,
+    @Param("agentId") agentId: string,
+    @Body() body: unknown,
+  ): Promise<{ id: string; agent_id: string; algorithm: "ed25519"; fingerprint: string; status: "active" }> {
+    const parsed = rotateSchema.safeParse(body);
+    if (!parsed.success) {
+      throw apiError(400, "validation_failed", "request validation failed");
+    }
+    const publicKey = Buffer.from(parsed.data.public_key, "base64url");
+    if (publicKey.length !== 32) {
+      throw apiError(400, "validation_failed", "public key is invalid");
+    }
+    return this.agents.rotate(principal(request).organizationId, agentParam(agentId), publicKey);
+  }
+
   @Get(":agentId")
   async get(@Req() request: RequestWithPrincipal, @Param("agentId") agentId: string): Promise<AgentRecord> {
     if (!/^[0-9a-f-]{36}$/i.test(agentId)) {
@@ -66,6 +99,13 @@ function principal(request: RequestWithPrincipal): NonNullable<RequestWithPrinci
     throw apiError(401, "unauthenticated", "authentication failed");
   }
   return request.principal;
+}
+
+function agentParam(agentId: string): string {
+  if (!/^[0-9a-f-]{36}$/i.test(agentId)) {
+    throw apiError(400, "validation_failed", "agent id is invalid");
+  }
+  return agentId;
 }
 
 function parseLimit(value: unknown): number {

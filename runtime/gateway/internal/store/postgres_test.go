@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -206,6 +207,73 @@ func TestRecordDecisionRollsBack(t *testing.T) {
 	})
 	if err != nil || again.Adapter != "sample.echo" || runs != 1 {
 		t.Fatalf("replay execute = %+v runs = %d err = %v", again, runs, err)
+	}
+
+	approvalCall, err := decisions.Load(ctx, orgID, agentID, approved.DecisionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvalCall.ApprovalID = approved.ApprovalID
+	consumedRuns := 0
+	_, err = decisions.Finish(ctx, approvalCall, func() (map[string]any, error) {
+		consumedRuns++
+		return map[string]any{"label": "should not run"}, nil
+	})
+	if !errors.Is(err, authz.ErrApprovalPending) || consumedRuns != 0 {
+		t.Fatalf("pending consume err = %v runs = %d", err, consumedRuns)
+	}
+	passwordHash := strings.Repeat("x", 60)
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, email, password_hash, display_name)
+		VALUES ($1, $2, $3, 'Same As Agent')`, agentID, "agent-"+agentID[:8]+"@example.com", passwordHash); err != nil {
+		t.Fatal(err)
+	}
+	approverID, err := idgen.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO users (id, email, password_hash, display_name)
+		VALUES ($1, $2, $3, 'Approver')`, approverID, "approver-"+approverID[:8]+"@example.com", passwordHash); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE approval_requests
+		SET status = 'approved', decided_by = $2, decided_at = now()
+		WHERE id = $1`, approved.ApprovalID, agentID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = decisions.Finish(ctx, approvalCall, func() (map[string]any, error) {
+		consumedRuns++
+		return map[string]any{"label": "should not run"}, nil
+	})
+	if !errors.Is(err, authz.ErrApprovalBinding) || consumedRuns != 0 {
+		t.Fatalf("self-approval err = %v runs = %d", err, consumedRuns)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE approval_requests SET decided_by = $2 WHERE id = $1`, approved.ApprovalID, approverID); err != nil {
+		t.Fatal(err)
+	}
+	consumed, err := decisions.Finish(ctx, approvalCall, func() (map[string]any, error) {
+		consumedRuns++
+		return map[string]any{"label": "sample adapter with no external side effect"}, nil
+	})
+	if err != nil || consumed.Adapter != "sample.echo" || consumedRuns != 1 {
+		t.Fatalf("consumed = %+v runs = %d err = %v", consumed, consumedRuns, err)
+	}
+	replayedConsumption, err := decisions.Finish(ctx, approvalCall, func() (map[string]any, error) {
+		consumedRuns++
+		return map[string]any{}, nil
+	})
+	if err != nil || replayedConsumption.Adapter != "sample.echo" || consumedRuns != 1 {
+		t.Fatalf("replayed consumption = %+v runs = %d err = %v", replayedConsumption, consumedRuns, err)
+	}
+	var approvalStatus string
+	if err := tx.QueryRow(ctx, `SELECT status FROM approval_requests WHERE id = $1`, approved.ApprovalID).Scan(&approvalStatus); err != nil {
+		t.Fatal(err)
+	}
+	if approvalStatus != "consumed" {
+		t.Fatalf("approval status = %s", approvalStatus)
 	}
 
 	var count int

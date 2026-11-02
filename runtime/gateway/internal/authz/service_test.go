@@ -258,10 +258,49 @@ func TestExecuteDoesNotRunDeniedCall(t *testing.T) {
 	if !errors.As(err, &failure) || failure.Status != 501 {
 		t.Fatalf("unsupported tool err = %v", err)
 	}
+	if store.finished != 0 {
+		t.Fatalf("finish calls = %d", store.finished)
+	}
+}
+
+func TestExecuteConsumesOnlyAPresentedApproval(t *testing.T) {
+	store := &executeStore{call: Executable{
+		DecisionID: "55555555-5555-4555-8555-555555555555", Outcome: "require_approval",
+		ToolName: "sample.echo", Operation: "sample.echo", IdempotencyKey: "idempotency-key-10",
+	}}
+	service, private, now := testService(t, memPolicies{}, &memStore{})
+	service.Store = store
+	body := []byte(`{"decision_id":"55555555-5555-4555-8555-555555555555","idempotency_key":"idempotency-key-10"}`)
+	headers := signedHeaders(t, private, now, "nonce-value-000012", body)
+	_, err := service.Execute(context.Background(), body, headers)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Code != "approval_required" || store.finished != 0 {
+		t.Fatalf("err = %v finished = %d", err, store.finished)
+	}
+	body = []byte(`{"approval_id":"66666666-6666-4666-8666-666666666666","decision_id":"55555555-5555-4555-8555-555555555555","idempotency_key":"idempotency-key-10"}`)
+	headers = signedHeaders(t, private, now, "nonce-value-000013", body)
+	result, err := service.Execute(context.Background(), body, headers)
+	if err != nil || result.Adapter != "sample.echo" || store.finished != 1 || store.approvalID != "66666666-6666-4666-8666-666666666666" {
+		t.Fatalf("result = %+v err = %v finished = %d approval = %s", result, err, store.finished, store.approvalID)
+	}
+}
+
+func signedHeaders(t *testing.T, private ed25519.PrivateKey, now time.Time, nonce string, body []byte) Headers {
+	t.Helper()
+	signature, err := identity.Sign(private, now.Unix(), nonce, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Headers{
+		AgentID: testAgent, Timestamp: strconv.FormatInt(now.Unix(), 10),
+		Nonce: nonce, Signature: signature,
+	}
 }
 
 type executeStore struct {
-	call Executable
+	call       Executable
+	finished   int
+	approvalID string
 }
 
 func (s *executeStore) Record(context.Context, Record) (Saved, error) {
@@ -272,6 +311,11 @@ func (s *executeStore) Load(context.Context, string, string, string) (Executable
 	return s.call, nil
 }
 
-func (s *executeStore) Finish(context.Context, Executable, func() (map[string]any, error)) (ExecuteResult, error) {
-	return ExecuteResult{}, errors.New("adapter should not run")
+func (s *executeStore) Finish(_ context.Context, call Executable, run func() (map[string]any, error)) (ExecuteResult, error) {
+	s.finished++
+	s.approvalID = call.ApprovalID
+	if _, err := run(); err != nil {
+		return ExecuteResult{}, err
+	}
+	return ExecuteResult{DecisionID: call.DecisionID, Outcome: "allow", Adapter: "sample.echo"}, nil
 }

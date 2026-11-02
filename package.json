@@ -2,7 +2,7 @@
   "name": "agentshield",
   "version": "0.1.0",
   "private": true,
-  "description": "AgentShield monorepo. Phase 2 SDKs and gateway integrations.",
+  "description": "AgentShield monorepo. Phase 3 credential lifecycle and approval consumption.",
   "engines": {
     "node": ">=20"
   },
