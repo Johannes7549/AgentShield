@@ -11,3 +11,5 @@
 - [0009 Phase 2 SDKs](0009-phase-2-sdks.md)
 - [0010 Phase 3 lifecycle](0010-phase-3-lifecycle.md)
 - [0011 Phase 4 reliability](0011-phase-4-reliability.md)
+- [0012 Phase 5 chaos harness](0012-phase-5-chaos.md)
+- [0013 Phase 6 operations](0013-phase-6-operations.md)

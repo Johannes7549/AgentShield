@@ -22,23 +22,12 @@ export class SessionsService {
     if (!this.pool) {
       throw apiError(500, "internal_error", "database is not configured");
     }
-    const result = await this.pool.query<{
-      id: string;
-      password_hash: string;
-      status: string;
-      organization_id: string | null;
-    }>(
-      `SELECT u.id::text, u.password_hash, u.status, o.id::text AS organization_id
-       FROM users u
-       LEFT JOIN memberships m ON m.user_id = u.id
-       LEFT JOIN organizations o ON o.id = m.organization_id AND o.status = 'active'
-       WHERE u.email = $1`,
-      [email],
-    );
-    const memberships = result.rows.filter((row) => row.organization_id);
-    if (result.rows.length !== 1 || result.rows[0].status !== "active" || memberships.length !== 1) {
+    const result = await this.loginCandidates(email);
+    const memberships = result.filter((row) => row.organization_id);
+    const uniqueUsers = new Set(result.map((row) => row.id));
+    if (uniqueUsers.size !== 1 || result[0]?.status !== "active" || memberships.length !== 1) {
       await verifyPassword(await this.dummy(), password);
-      if (result.rows.length === 1 && result.rows[0].status === "active" && memberships.length !== 1) {
+      if (uniqueUsers.size === 1 && result[0]?.status === "active" && memberships.length !== 1) {
         throw apiError(403, "forbidden", "user does not have one active organization");
       }
       throw apiError(401, "unauthenticated", "invalid email or password");
@@ -50,17 +39,71 @@ export class SessionsService {
     }
     const token = randomBytes(32).toString("base64url");
     const expires = new Date(Date.now() + SESSION_TTL_MS);
-    await this.pool.query(
-      `INSERT INTO user_sessions (user_id, organization_id, token_hash, expires_at)
-       VALUES ($1, $2, $3, $4)`,
-      [user.id, user.organization_id, hashSessionToken(token), expires],
-    );
+    await this.createSession(user.id, user.organization_id ?? "", hashSessionToken(token), expires);
     return {
       token,
       token_type: "bearer",
       expires_at: expires.toISOString(),
       organization_id: user.organization_id ?? "",
     };
+  }
+
+  private async loginCandidates(email: string): Promise<
+    { id: string; password_hash: string; status: string; organization_id: string | null }[]
+  > {
+    try {
+      const result = await this.pool!.query<{
+        user_id: string;
+        password_hash: string;
+        user_status: string;
+        organization_id: string | null;
+      }>(`SELECT user_id::text, password_hash, user_status, organization_id::text FROM agentshield_login_candidates($1)`, [
+        email,
+      ]);
+      return result.rows.map((row) => ({
+        id: row.user_id,
+        password_hash: row.password_hash,
+        status: row.user_status,
+        organization_id: row.organization_id,
+      }));
+    } catch {
+      const result = await this.pool!.query<{
+        id: string;
+        password_hash: string;
+        status: string;
+        organization_id: string | null;
+      }>(
+        `SELECT u.id::text, u.password_hash, u.status, o.id::text AS organization_id
+         FROM users u
+         LEFT JOIN memberships m ON m.user_id = u.id
+         LEFT JOIN organizations o ON o.id = m.organization_id AND o.status = 'active'
+         WHERE u.email = $1`,
+        [email],
+      );
+      return result.rows;
+    }
+  }
+
+  private async createSession(
+    userId: string,
+    organizationId: string,
+    tokenHash: Buffer,
+    expires: Date,
+  ): Promise<void> {
+    try {
+      await this.pool!.query(`SELECT agentshield_create_session($1, $2, $3, $4)`, [
+        userId,
+        organizationId,
+        tokenHash,
+        expires,
+      ]);
+    } catch {
+      await this.pool!.query(
+        `INSERT INTO user_sessions (user_id, organization_id, token_hash, expires_at)
+         VALUES ($1, $2, $3, $4)`,
+        [userId, organizationId, tokenHash, expires],
+      );
+    }
   }
 
   private dummy(): Promise<string> {

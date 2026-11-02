@@ -2,7 +2,9 @@ import { Inject, Injectable } from "@nestjs/common";
 import type { Pool, PoolClient } from "pg";
 import { appendAudit } from "../audit/append";
 import { DATABASE_POOL } from "../db/database";
+import { setOrganization } from "../db/organization";
 import { apiError } from "../http/errors";
+import { rejectsSelfApproval } from "./self-approval";
 
 export interface ApprovalRecord {
   id: string;
@@ -22,6 +24,7 @@ export class ApprovalsService {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      await setOrganization(client, organizationId);
       await expirePending(client, organizationId);
       const result = await client.query<ApprovalRow>(
         `${approvalSelect()}
@@ -53,6 +56,7 @@ export class ApprovalsService {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      await setOrganization(client, organizationId);
       await expirePending(client, organizationId);
       const locked = await client.query<ApprovalRow>(
         `${approvalSelect()} WHERE id = $1 AND organization_id = $2 FOR UPDATE`,
@@ -62,7 +66,7 @@ export class ApprovalsService {
       if (!row) {
         throw apiError(404, "not_found", "approval not found");
       }
-      if (row.agent_id === userId) {
+      if (rejectsSelfApproval(row.agent_id, userId)) {
         throw apiError(403, "self_approval", "an agent cannot approve its own action");
       }
       if (row.status === "expired") {

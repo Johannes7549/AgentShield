@@ -18,9 +18,8 @@ Done in this revision:
 
 Still open before calling the foundation finished in a shared environment:
 
-- Pin container images by digest before anyone other than a single developer uses Compose.
-- Add a non-owner database role. The published Compose user owns the schema.
-- Confirm MinIO after a fresh clone if `cgr.dev` is unreachable. On the machine that finished this revision, `cgr.dev/chainguard/minio` started and `minio-init` created `agentshield-evidence`. PostgreSQL, Redis, and NATS are healthy, and `0001_init` applied. Upstream no longer publishes `minio/minio` anonymously.
+- Confirm MinIO after a fresh clone if `cgr.dev` is unreachable, and pin Chainguard digests when a registry answer is available.
+- Apply `0004_app_role_rls.sql` on existing volumes before using `agentshield_app`.
 
 ## Phase 1 — Minimum viable enforcement
 
@@ -79,13 +78,31 @@ Still out of scope:
 
 ## Phase 5 — Chaos harness
 
-- Executable scenarios from `chaos-engine/scenarios/CATALOG.md`.
-- A result is a failure when the harness does not observe the expected defensive behavior. A missing result is not a pass.
+Done in this revision:
+
+- The twelve catalog scenarios run against the gateway's authorization, budget, timeout, and body-limit behavior.
+- A missing observation is stored as failed. Status passed is stored only when the defensive behavior was observed.
+- Owner and admin can start and read an experiment. Disabled scenarios are rejected.
+
+Still out of scope:
+
+- The dashboard does not launch experiments.
+- The harness does not include attack payloads.
 
 ## Phase 6 — Console and operations
 
-- Dashboard views on live data, WebSocket updates, React Query, and charts.
-- OpenTelemetry across the three processes.
-- External head-hash export, a non-owner database role, row level security, image digest pins, and a measured decision about analytical storage.
+Done in this revision:
 
-ClickHouse is not scheduled until an event stream is committing and a query needs it.
+- Dashboard live reads for agents, incidents, events, and audit links through a local BFF and React Query.
+- Interval refresh and a simple event-mix chart. SSE stream route exists on the control plane for events.
+- Structured OpenTelemetry-style spans on control-plane, gateway, and intelligence HTTP handling.
+- Audit head export stored outside the live head row.
+- `agentshield_app` role, organization RLS, and production mode only when `DATABASE_URL` uses that role.
+- Digests for PostgreSQL, Redis, NATS, and Busybox. Chainguard MinIO remains on floating tags until a digest is recorded.
+- ADR 0013 keeps ClickHouse undeployed until a committing event stream needs it.
+
+Still out of scope:
+
+- Intelligence analysis routes.
+- NATS event publishing.
+- Pinning Chainguard MinIO by digest from an unreachable registry.

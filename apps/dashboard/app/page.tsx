@@ -1,3 +1,4 @@
+import { LiveConsole } from "../components/live-console";
 import { areas, services } from "../lib/inventory";
 
 export default function HomePage() {
@@ -12,10 +13,7 @@ export default function HomePage() {
           <ul className="space-y-1">
             {areas.map((area) => (
               <li key={area.id}>
-                <a
-                  href={`#${area.id}`}
-                  className="block rounded px-3 py-2 text-sm text-slate-200 hover:bg-ink"
-                >
+                <a href={`#${area.id}`} className="block rounded px-3 py-2 text-sm text-slate-200 hover:bg-ink">
                   {area.name}
                 </a>
               </li>
@@ -26,8 +24,8 @@ export default function HomePage() {
       <div>
         <header className="flex items-center justify-between border-b border-line px-6 py-4">
           <div>
-            <h1 className="text-base font-semibold">Foundation</h1>
-            <p className="text-sm text-muted">Phase 0. Architecture status, not live telemetry.</p>
+            <h1 className="text-base font-semibold">Operations</h1>
+            <p className="text-sm text-muted">Phase 6. Live control-plane reads, not invented metrics.</p>
           </div>
           <p className="rounded border border-line px-2 py-1 font-mono text-xs text-accent">local</p>
         </header>
@@ -37,8 +35,8 @@ export default function HomePage() {
               What this revision runs
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
-              The console shell is in place so later phases have a stable layout. It does not query
-              agents, policies, or events, and it does not show placeholder counts.
+              The console loads agents, incidents, events, and audit links from the control plane after sign-in. It
+              refreshes on an interval and can export a copy of the audit head.
             </p>
             <div className="mt-4 overflow-hidden rounded border border-line">
               <table className="w-full text-left text-sm">
@@ -70,22 +68,7 @@ export default function HomePage() {
               </table>
             </div>
           </section>
-          <section aria-labelledby="areas-heading">
-            <h2 id="areas-heading" className="text-lg font-semibold">
-              Planned sections
-            </h2>
-            <div className="mt-4 grid gap-3 lg:grid-cols-2">
-              {areas.map((area) => (
-                <article key={area.id} id={area.id} className="rounded border border-line bg-panel p-4">
-                  <div className="flex items-baseline justify-between gap-3">
-                    <h3 className="font-medium">{area.name}</h3>
-                    <p className="font-mono text-xs text-accent">{area.phase}</p>
-                  </div>
-                  <p className="mt-2 text-sm leading-6 text-muted">{area.status}</p>
-                </article>
-              ))}
-            </div>
-          </section>
+          <LiveConsole />
         </main>
       </div>
     </div>

@@ -32,7 +32,7 @@ Composite foreign keys tie agent-scoped rows to `(agent_id, organization_id)`. A
 
 Client-supplied organization ids are claims. Later request handlers must ignore them as authority and deny the request when the claim disagrees with the authenticated agent or membership.
 
-Row level security is not enabled. Enabling it before the application sets a session organization would block legitimate access without adding a tested control. A non-owner database role, plus RLS using a transaction-local organization id, is required before any shared deployment.
+Row level security is enabled on tenant tables. The Compose owner role bypasses RLS for migrations and bootstrap. Shared deployments must connect as `agentshield_app` and set `app.organization_id` for the transaction after authentication. Production mode requires that app role.
 
 ## Approval binding
 
@@ -62,14 +62,16 @@ After a signature and nonce succeed, Redis counts 60 requests per agent, 30 call
 
 Canonical arguments larger than 4096 bytes, and the fifth deny for an agent inside ten minutes, open a `security_incidents` row in the same transaction as the decision. Those rules do not change allow, deny, or require_approval. No model score is consulted. Owner, admin, and auditor sessions can list the rows.
 
-`AGENTSHIELD_ENV=production` is refused by the control plane, gateway, and intelligence process until a non-owner database role and row level security exist.
+`AGENTSHIELD_ENV=production` is allowed for the control plane and gateway when `DATABASE_URL` uses `agentshield_app`. The intelligence process still refuses production.
+
+The chaos harness runs the catalog against the gateway and stores failed when the expected defense is not observed. A missing observation is failed. The probes are fixtures. They do not change an authorization outcome and they do not carry attack payloads.
 
 ## What this revision does not claim
 
 - It does not stop prompt injection. No detector is implemented, and a future detector will not be an authorization oracle. Behavioral incidents are not that detector.
 - It does not resume a suspended agent. Revocation is permanent in this revision.
 - It does not execute any tool except `sample.echo`. That adapter does not call a network, database, or shell.
-- It does not isolate tenants against a database owner.
+- It isolates `agentshield_app` by organization RLS. The schema owner still bypasses RLS.
 - It does not provide a tamper-proof log against someone who can rewrite the database and every external copy of the head.
 - It does not scan dependencies in this repository's CI yet. That job belongs with the first release process, not with an empty lockfile story. Node lockfiles are generated locally and CI uses `npm ci` once they exist.
 

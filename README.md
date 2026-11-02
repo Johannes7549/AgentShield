@@ -1,8 +1,8 @@
 # AgentShield
 
-AgentShield is a security and reliability layer for autonomous agents. Tool calls are authenticated, authorized, and recorded outside the agent that requested them. This repository implements that path for one registered agent and the `sample.echo` adapter. Owners can rotate, suspend, and revoke credentials. An approver can approve or reject a pending request, and the gateway consumes an approval once. Signed calls are counted against request, tool-call, and token budgets. Repeated adapter failures open a circuit. Oversized arguments and a burst of denies open incidents that an auditor can list. Python and TypeScript clients sign the request. LangGraph and MCP forward tool calls through those clients and cannot run a tool locally. LangChain and CrewAI are not integrated.
+AgentShield is a security and reliability layer for autonomous agents. Tool calls are authenticated, authorized, and recorded outside the agent that requested them. This repository implements that path for one registered agent and the `sample.echo` adapter. Owners can rotate, suspend, and revoke credentials. An approver can approve or reject a pending request, and the gateway consumes an approval once. Signed calls are counted against request, tool-call, and token budgets. Repeated adapter failures open a circuit. Oversized arguments and a burst of denies open incidents that an auditor can list. An owner or admin can run a chaos scenario, and a missing observation is stored as a failure. Python and TypeScript clients sign the request. LangGraph and MCP forward tool calls through those clients and cannot run a tool locally. LangChain and CrewAI are not integrated.
 
-The control plane and gateway answer liveness. Readiness is 200 only when their databases answer. The dashboard is still a shell and does not show live counts. `AGENTSHIELD_ENV=production` is refused.
+The control plane and gateway answer liveness. Readiness is 200 only when their databases answer. The dashboard loads live control-plane data after sign-in. `AGENTSHIELD_ENV=production` requires `DATABASE_URL` to use the `agentshield_app` role.
 
 ## Layout
 
@@ -37,7 +37,7 @@ docker compose up -d
 docker compose ps
 ```
 
-Published ports bind to `127.0.0.1`. The database user, Redis, NATS, and MinIO use the development defaults in `.env.example`. Those values are not for any other environment. Postgres applies every file in `infrastructure/docker/postgres/migrations/` in lexical order when the data volume is created. An existing volume does not pick up a new file. Apply `0002_user_sessions.sql` with `psql` if `schema_migrations` does not list it. Reset the volume with `docker compose down -v` only when you can lose the local data.
+Published ports bind to `127.0.0.1`. The database user, Redis, NATS, and MinIO use the development defaults in `.env.example`. Those values are not for any other environment. Postgres applies every file in `infrastructure/docker/postgres/migrations/` in lexical order when the data volume is created. An existing volume does not pick up a new file. Apply `0002_user_sessions.sql`, `0003_chaos_scenarios.sql`, and `0004_app_role_rls.sql` with `psql` if `schema_migrations` does not list them. The control plane also inserts any missing catalog scenario when an experiment starts. Reset the volume with `docker compose down -v` only when you can lose the local data.
 
 MinIO's evidence bucket is `agentshield-evidence`. The server image is `cgr.dev/chainguard/minio` because the upstream `minio/minio` image is no longer published for anonymous pulls. After Compose starts that image, the console is at `http://127.0.0.1:9001`.
 
@@ -94,7 +94,7 @@ npm run dev --workspace @agentshield/dashboard
 
 The console is at `http://127.0.0.1:3000`.
 
-`AGENTSHIELD_ENV=production` is refused by the three backend processes.
+`AGENTSHIELD_ENV=production` is allowed for the control plane and gateway only when `DATABASE_URL` uses `agentshield_app`. The intelligence process still refuses production until it has an analysis route.
 
 ## Tests
 

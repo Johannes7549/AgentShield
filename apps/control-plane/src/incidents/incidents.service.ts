@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { Pool } from "pg";
 import { DATABASE_POOL } from "../db/database";
+import { withOrganization } from "../db/organization";
 import { apiError } from "../http/errors";
 
 export interface IncidentRecord {
@@ -19,14 +20,16 @@ export class IncidentsService {
     if (!this.pool) {
       throw apiError(500, "internal_error", "database is not configured");
     }
-    const result = await this.pool.query<IncidentRecord>(
-      `SELECT id::text, severity, status, title, detection_reason
-       FROM security_incidents
-       WHERE organization_id = $1
-       ORDER BY opened_at DESC, id DESC
-       LIMIT 200`,
-      [organizationId],
-    );
-    return { items: result.rows };
+    return withOrganization(this.pool, organizationId, async (client) => {
+      const result = await client.query<IncidentRecord>(
+        `SELECT id::text, severity, status, title, detection_reason
+         FROM security_incidents
+         WHERE organization_id = $1
+         ORDER BY opened_at DESC, id DESC
+         LIMIT 200`,
+        [organizationId],
+      );
+      return { items: result.rows };
+    });
   }
 }

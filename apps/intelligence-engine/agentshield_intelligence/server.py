@@ -1,6 +1,8 @@
 import json
+import secrets
 import signal
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
@@ -18,6 +20,7 @@ class Handler(BaseHTTPRequestHandler):
         self._respond()
 
     def _respond(self) -> None:
+        started = time.time()
         path = urlsplit(self.path).path
         status, body = dispatch(self.command, path)
         payload = json.dumps(body).encode("utf-8")
@@ -30,21 +33,24 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(payload)
-
-    def log_message(self, fmt: str, *args: object) -> None:
-        del fmt
-        status = args[1] if len(args) > 1 else None
         sys.stdout.write(
             json.dumps(
                 {
                     "level": "info",
                     "service": "intelligence-engine",
-                    "msg": "request",
+                    "msg": "otel",
+                    "trace_id": secrets.token_hex(16),
+                    "span_id": secrets.token_hex(8),
+                    "name": f"{self.command} {path}",
                     "status": status,
+                    "duration_ms": int((time.time() - started) * 1000),
                 }
             )
             + "\n"
         )
+
+    def log_message(self, fmt: str, *args: object) -> None:
+        del fmt, args
 
 
 def serve(config: Config) -> None:

@@ -5,7 +5,7 @@ info:
   description: |
     Contract for the Go gateway. `/health/live` reports the process.
     `/health/ready` returns 200 when PostgreSQL and Redis answer, and 503
-    when they do not. Production mode is still refused.
+    when they do not. Production mode requires DATABASE_URL to use agentshield_app.
 
     `POST /api/v1/runtime/authorize` authenticates the agent signature, evaluates
     policy, and persists the decision. `allow` does not execute the tool.

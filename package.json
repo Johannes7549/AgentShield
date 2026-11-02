@@ -2,7 +2,7 @@
   "name": "agentshield",
   "version": "0.1.0",
   "private": true,
-  "description": "AgentShield monorepo. Phase 4 limits, circuit breaker, and behavioral incidents.",
+  "description": "AgentShield monorepo. Phase 6 console and operations.",
   "engines": {
     "node": ">=20"
   },

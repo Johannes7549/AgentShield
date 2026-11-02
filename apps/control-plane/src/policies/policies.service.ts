@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { Pool, PoolClient } from "pg";
 import { DATABASE_POOL } from "../db/database";
+import { setOrganization } from "../db/organization";
 import { apiError } from "../http/errors";
 import { documentHash, validatePolicyDocument, canonicalJson, type PolicyDocument } from "./document";
 
@@ -34,6 +35,7 @@ export class PoliciesService {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      await setOrganization(client, organizationId);
       if (input.scope === "agent") {
         const agent = await client.query(`SELECT 1 FROM agents WHERE id = $1 AND organization_id = $2`, [
           input.agentId,
@@ -100,6 +102,7 @@ export class PoliciesService {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      await setOrganization(client, organizationId);
       const current = await client.query<{ scope: "organization" | "agent"; agent_id: string | null; version: number }>(
         `SELECT p.scope, p.agent_id::text, v.version
          FROM security_policies p

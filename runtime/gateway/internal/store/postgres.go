@@ -47,12 +47,17 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 
 func (p *Postgres) Lookup(ctx context.Context, agentID string) (authz.Principal, error) {
 	rows, err := p.db.Query(ctx, `
-		SELECT a.organization_id::text, a.status, c.public_key, c.status, c.not_before, c.not_after
-		FROM agents a
-		LEFT JOIN agent_credentials c
-		  ON c.agent_id = a.id AND c.organization_id = a.organization_id
-		WHERE a.id = $1
-		ORDER BY c.created_at DESC NULLS LAST`, agentID)
+		SELECT organization_id::text, agent_status, public_key, credential_status, not_before, not_after
+		FROM agentshield_lookup_agent($1::uuid)`, agentID)
+	if err != nil {
+		rows, err = p.db.Query(ctx, `
+			SELECT a.organization_id::text, a.status, c.public_key, c.status, c.not_before, c.not_after
+			FROM agents a
+			LEFT JOIN agent_credentials c
+			  ON c.agent_id = a.id AND c.organization_id = a.organization_id
+			WHERE a.id = $1
+			ORDER BY c.created_at DESC NULLS LAST`, agentID)
+	}
 	if err != nil {
 		return authz.Principal{}, err
 	}
@@ -116,7 +121,15 @@ func (p *Postgres) Lookup(ctx context.Context, agentID string) (authz.Principal,
 }
 
 func (p *Postgres) Load(ctx context.Context, organizationID string, agentID string) (*policy.Source, *policy.Source, error) {
-	organization, err := p.onePolicy(ctx, `
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := setOrganization(ctx, tx, organizationID); err != nil {
+		return nil, nil, err
+	}
+	organization, err := onePolicyTx(ctx, tx, `
 		SELECT p.id::text, v.id::text, v.version, v.document::text, v.document_hash
 		FROM security_policies p
 		JOIN policy_versions v
@@ -125,13 +138,16 @@ func (p *Postgres) Load(ctx context.Context, organizationID string, agentID stri
 	if err != nil {
 		return nil, nil, err
 	}
-	agent, err := p.onePolicy(ctx, `
+	agent, err := onePolicyTx(ctx, tx, `
 		SELECT p.id::text, v.id::text, v.version, v.document::text, v.document_hash
 		FROM security_policies p
 		JOIN policy_versions v
 		  ON v.id = p.current_version_id AND v.organization_id = p.organization_id
 		WHERE p.organization_id = $1 AND p.agent_id = $2 AND p.status = 'active' AND p.scope = 'agent'`, organizationID, agentID)
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return nil, nil, err
 	}
 	return organization, agent, nil
@@ -162,8 +178,16 @@ func (p *Postgres) Record(ctx context.Context, record authz.Record) (authz.Saved
 }
 
 func (p *Postgres) LoadDecision(ctx context.Context, organizationID string, agentID string, decisionID string) (authz.Executable, error) {
+	tx, err := p.db.Begin(ctx)
+	if err != nil {
+		return authz.Executable{}, err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := setOrganization(ctx, tx, organizationID); err != nil {
+		return authz.Executable{}, err
+	}
 	var call authz.Executable
-	err := p.db.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		SELECT d.id::text, d.organization_id::text, d.agent_id::text, d.outcome,
 		       ti.execution_id::text, ti.tool_name, ti.operation, ti.resource, ti.idempotency_key
 		FROM authorization_decisions d
@@ -179,6 +203,9 @@ func (p *Postgres) LoadDecision(ctx context.Context, organizationID string, agen
 	if err != nil {
 		return authz.Executable{}, err
 	}
+	if err := tx.Commit(ctx); err != nil {
+		return authz.Executable{}, err
+	}
 	return call, nil
 }
 
@@ -188,6 +215,9 @@ func (p *Postgres) Finish(ctx context.Context, call authz.Executable, run func()
 		return authz.ExecuteResult{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := setOrganization(ctx, tx, call.OrganizationID); err != nil {
+		return authz.ExecuteResult{}, err
+	}
 
 	var status, metadata string
 	err = tx.QueryRow(ctx, `
@@ -275,6 +305,9 @@ func (p *Postgres) saveOnce(ctx context.Context, record authz.Record) (authz.Sav
 		return authz.Saved{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+	if err := setOrganization(ctx, tx, record.OrganizationID); err != nil {
+		return authz.Saved{}, err
+	}
 
 	existing, found, err := readIdempotent(ctx, tx, record)
 	if err != nil {
@@ -390,8 +423,12 @@ func (p *Postgres) saveOnce(ctx context.Context, record authz.Record) (authz.Sav
 	return saved, nil
 }
 
-func (p *Postgres) onePolicy(ctx context.Context, sql string, args ...any) (*policy.Source, error) {
-	rows, err := p.db.Query(ctx, sql, args...)
+type querier interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+func onePolicyTx(ctx context.Context, q querier, sql string, args ...any) (*policy.Source, error) {
+	rows, err := q.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -467,6 +504,11 @@ func readIdempotent(ctx context.Context, tx pgx.Tx, record authz.Record) (authz.
 		saved.ApprovalExpiresAt = *approvalExpires
 	}
 	return saved, true, nil
+}
+
+func setOrganization(ctx context.Context, tx pgx.Tx, organizationID string) error {
+	_, err := tx.Exec(ctx, `SELECT set_config('app.organization_id', $1, true)`, organizationID)
+	return err
 }
 
 func noteBehavior(ctx context.Context, tx pgx.Tx, record authz.Record) error {
