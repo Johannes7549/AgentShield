@@ -17,6 +17,7 @@ import (
 	"github.com/agentshield/agentshield/runtime/gateway/internal/authz"
 	"github.com/agentshield/agentshield/runtime/gateway/internal/idgen"
 	"github.com/agentshield/agentshield/runtime/gateway/internal/jsondoc"
+	"github.com/agentshield/agentshield/runtime/gateway/internal/limits"
 	"github.com/agentshield/agentshield/runtime/policy-engine"
 )
 
@@ -380,6 +381,9 @@ func (p *Postgres) saveOnce(ctx context.Context, record authz.Record) (authz.Sav
 		WHERE id = $1 AND organization_id = $2`, record.AgentID, record.OrganizationID, occurred); err != nil {
 		return authz.Saved{}, err
 	}
+	if err := noteBehavior(ctx, tx, record); err != nil {
+		return authz.Saved{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return authz.Saved{}, err
 	}
@@ -463,6 +467,51 @@ func readIdempotent(ctx context.Context, tx pgx.Tx, record authz.Record) (authz.
 		saved.ApprovalExpiresAt = *approvalExpires
 	}
 	return saved, true, nil
+}
+
+func noteBehavior(ctx context.Context, tx pgx.Tx, record authz.Record) error {
+	if record.ArgumentBytes > limits.ArgumentByteLimit {
+		if err := insertIncident(ctx, tx, record, "low", "arguments exceed the behavioral size rule", "oversized_arguments", map[string]any{
+			"rule":           "oversized_arguments",
+			"argument_bytes": record.ArgumentBytes,
+			"execution_id":   record.ExecutionID,
+		}); err != nil {
+			return err
+		}
+	}
+	if record.Decision.Outcome != policy.OutcomeDeny {
+		return nil
+	}
+	var denies int
+	if err := tx.QueryRow(ctx, `
+		SELECT count(*)
+		FROM authorization_decisions
+		WHERE organization_id = $1 AND agent_id = $2 AND outcome = 'deny'
+		  AND decided_at > now() - interval '10 minutes'`,
+		record.OrganizationID, record.AgentID).Scan(&denies); err != nil {
+		return err
+	}
+	if denies != limits.DenyBurst {
+		return nil
+	}
+	return insertIncident(ctx, tx, record, "medium", "repeated denies opened a behavioral incident", "deny_burst", map[string]any{
+		"rule":         "deny_burst",
+		"deny_count":   denies,
+		"execution_id": record.ExecutionID,
+	})
+}
+
+func insertIncident(ctx context.Context, tx pgx.Tx, record authz.Record, severity string, title string, reason string, evidence map[string]any) error {
+	encoded, err := json.Marshal(evidence)
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `
+		INSERT INTO security_incidents (
+			organization_id, agent_id, severity, status, title, detection_reason, evidence
+		) VALUES ($1, $2, $3, 'open', $4, $5, $6::jsonb)`,
+		record.OrganizationID, record.AgentID, severity, title, reason, string(encoded))
+	return err
 }
 
 func eventDocument(record authz.Record) ([]byte, error) {

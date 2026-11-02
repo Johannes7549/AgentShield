@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/agentshield/agentshield/runtime/gateway/internal/limits"
 	"github.com/agentshield/agentshield/runtime/gateway/internal/nonce"
 	"github.com/agentshield/agentshield/runtime/identity"
 	"github.com/agentshield/agentshield/runtime/policy-engine"
@@ -310,6 +311,67 @@ func (s *executeStore) Record(context.Context, Record) (Saved, error) {
 func (s *executeStore) Load(context.Context, string, string, string) (Executable, error) {
 	return s.call, nil
 }
+
+func TestAuthorizeStopsWhenTheBudgetIsExceeded(t *testing.T) {
+	store := &memStore{}
+	service, private, now := testService(t, memPolicies{}, store)
+	service.Limits = staticLimit{err: limits.ErrBudget}
+	body, headers := signedRequest(t, private, now, testOrg, "sample.echo", "nonce-value-000014", "idempotency-key-14")
+	_, err := service.Authorize(context.Background(), body, headers)
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Status != 429 || failure.Code != "rate_limited" || len(store.records) != 0 {
+		t.Fatalf("err = %v records = %d", err, len(store.records))
+	}
+	service.Limits = staticLimit{err: limits.ErrUnavailable}
+	body, headers = signedRequest(t, private, now, testOrg, "sample.echo", "nonce-value-000015", "idempotency-key-15")
+	_, err = service.Authorize(context.Background(), body, headers)
+	if !errors.As(err, &failure) || failure.Status != 500 || len(store.records) != 0 {
+		t.Fatalf("unavailable err = %v records = %d", err, len(store.records))
+	}
+}
+
+func TestExecuteTimeoutAndOpenCircuit(t *testing.T) {
+	store := &executeStore{call: Executable{
+		DecisionID: "55555555-5555-4555-8555-555555555555", Outcome: "allow",
+		OrganizationID: testOrg, ToolName: "sample.echo", Operation: "sample.echo",
+		IdempotencyKey: "idempotency-key-16",
+	}}
+	service, private, now := testService(t, memPolicies{}, &memStore{})
+	service.Store = store
+	service.AdapterTimeout = 15 * time.Millisecond
+	service.Run = func(ctx context.Context, _ string, _ string) (map[string]any, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	body := []byte(`{"decision_id":"55555555-5555-4555-8555-555555555555","idempotency_key":"idempotency-key-16"}`)
+	_, err := service.Execute(context.Background(), body, signedHeaders(t, private, now, "nonce-value-000016", body))
+	var failure *Failure
+	if !errors.As(err, &failure) || failure.Status != 500 || failure.Message != "tool adapter timed out" {
+		t.Fatalf("timeout err = %v", err)
+	}
+
+	service.Breaker = openCircuit{}
+	service.Run = func(context.Context, string, string) (map[string]any, error) {
+		t.Fatal("adapter ran while the circuit was open")
+		return nil, nil
+	}
+	_, err = service.Execute(context.Background(), body, signedHeaders(t, private, now, "nonce-value-000017", body))
+	if !errors.As(err, &failure) || failure.Status != 503 || failure.Code != "circuit_open" {
+		t.Fatalf("circuit err = %v", err)
+	}
+}
+
+type staticLimit struct {
+	err error
+}
+
+func (s staticLimit) Take(context.Context, string, string, int) error { return s.err }
+
+type openCircuit struct{}
+
+func (openCircuit) Allow(context.Context, string, string) error   { return limits.ErrOpen }
+func (openCircuit) Failure(context.Context, string, string) error { return nil }
+func (openCircuit) Success(context.Context, string, string) error { return nil }
 
 func (s *executeStore) Finish(_ context.Context, call Executable, run func() (map[string]any, error)) (ExecuteResult, error) {
 	s.finished++

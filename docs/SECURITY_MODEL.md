@@ -58,11 +58,15 @@ Local data services publish ports on `127.0.0.1` only. Development passwords in 
 
 The gateway body limit defaults to 1 MiB and cannot be configured higher, matching the JSON parser used for redaction and hashing. The control plane JSON parser limit is 256 KiB. Both processes bind `127.0.0.1` by default.
 
+After a signature and nonce succeed, Redis counts 60 requests per agent, 30 calls per agent and tool, and a token budget of 100,000 for 60 seconds. A token is four bytes of the raw body, rounded up. Crossing a counter returns 429 and stores no decision. Five adapter failures in that window open the tool circuit for 30 seconds. An open circuit does not call the adapter. `sample.echo` has a two-second deadline. A completed execution returns the stored result instead of running again.
+
+Canonical arguments larger than 4096 bytes, and the fifth deny for an agent inside ten minutes, open a `security_incidents` row in the same transaction as the decision. Those rules do not change allow, deny, or require_approval. No model score is consulted. Owner, admin, and auditor sessions can list the rows.
+
 `AGENTSHIELD_ENV=production` is refused by the control plane, gateway, and intelligence process until a non-owner database role and row level security exist.
 
 ## What this revision does not claim
 
-- It does not stop prompt injection. No detector is implemented, and a future detector will not be an authorization oracle.
+- It does not stop prompt injection. No detector is implemented, and a future detector will not be an authorization oracle. Behavioral incidents are not that detector.
 - It does not resume a suspended agent. Revocation is permanent in this revision.
 - It does not execute any tool except `sample.echo`. That adapter does not call a network, database, or shell.
 - It does not isolate tenants against a database owner.

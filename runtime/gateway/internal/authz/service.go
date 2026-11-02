@@ -20,6 +20,7 @@ import (
 	"github.com/agentshield/agentshield/runtime/gateway/internal/adapter"
 	"github.com/agentshield/agentshield/runtime/gateway/internal/auditchain"
 	"github.com/agentshield/agentshield/runtime/gateway/internal/jsondoc"
+	"github.com/agentshield/agentshield/runtime/gateway/internal/limits"
 	"github.com/agentshield/agentshield/runtime/gateway/internal/nonce"
 	"github.com/agentshield/agentshield/runtime/gateway/internal/redact"
 	"github.com/agentshield/agentshield/runtime/identity"
@@ -79,6 +80,7 @@ type Record struct {
 	Resource          string
 	ArgumentsHash     string
 	ArgumentsRedacted json.RawMessage
+	ArgumentBytes     int
 	RequestedAt       time.Time
 	Decision          policy.Decision
 	RawBodyHash       string
@@ -116,6 +118,18 @@ type Nonces interface {
 	Reserve(ctx context.Context, agentID string, nonce string) error
 }
 
+type Limiter interface {
+	Take(ctx context.Context, agentID string, tool string, tokens int) error
+}
+
+type Circuit interface {
+	Allow(ctx context.Context, organizationID string, tool string) error
+	Failure(ctx context.Context, organizationID string, tool string) error
+	Success(ctx context.Context, organizationID string, tool string) error
+}
+
+type ToolRunner func(ctx context.Context, operation string, resource string) (map[string]any, error)
+
 type Result struct {
 	DecisionID        string             `json:"decision_id"`
 	Outcome           string             `json:"outcome"`
@@ -132,11 +146,15 @@ type ExecuteResult struct {
 }
 
 type Service struct {
-	Directory Directory
-	Policies  PolicyLoader
-	Store     Store
-	Nonces    Nonces
-	Now       func() time.Time
+	Directory      Directory
+	Policies       PolicyLoader
+	Store          Store
+	Nonces         Nonces
+	Limits         Limiter
+	Breaker        Circuit
+	Run            ToolRunner
+	AdapterTimeout time.Duration
+	Now            func() time.Time
 }
 
 func (s *Service) Authorize(ctx context.Context, body []byte, headers Headers) (Result, error) {
@@ -146,6 +164,9 @@ func (s *Service) Authorize(ctx context.Context, body []byte, headers Headers) (
 	}
 	decoded, err := decodeAuthorize(body)
 	if err != nil {
+		return Result{}, err
+	}
+	if err := s.takeLimit(ctx, principal.AgentID, decoded.ToolName, len(body)); err != nil {
 		return Result{}, err
 	}
 	if decoded.AgentID != principal.AgentID {
@@ -210,19 +231,7 @@ func (s *Service) Execute(ctx context.Context, body []byte, headers Headers) (Ex
 		return ExecuteResult{}, fail(http.StatusNotImplemented, "not_implemented", "no adapter is registered for this tool")
 	}
 	result, err := s.Store.Finish(ctx, call, func() (map[string]any, error) {
-		echo, ok := adapter.Echo(call.Operation, call.Resource)
-		if !ok {
-			return nil, errors.New("sample adapter rejected the operation")
-		}
-		encoded, err := json.Marshal(echo)
-		if err != nil {
-			return nil, err
-		}
-		var payload map[string]any
-		if err := json.Unmarshal(encoded, &payload); err != nil {
-			return nil, err
-		}
-		return payload, nil
+		return s.invoke(ctx, call)
 	})
 	if errors.Is(err, ErrApprovalPending) {
 		return ExecuteResult{}, fail(http.StatusConflict, "approval_required", "decision requires approval")
@@ -235,6 +244,12 @@ func (s *Service) Execute(ctx context.Context, body []byte, headers Headers) (Ex
 	}
 	if errors.Is(err, ErrConflict) {
 		return ExecuteResult{}, fail(http.StatusConflict, "conflict", "execution cannot be completed")
+	}
+	if errors.Is(err, limits.ErrOpen) {
+		return ExecuteResult{}, fail(http.StatusServiceUnavailable, "circuit_open", "tool circuit is open")
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return ExecuteResult{}, fail(http.StatusInternalServerError, "internal_error", "tool adapter timed out")
 	}
 	if err != nil {
 		return ExecuteResult{}, fail(http.StatusInternalServerError, "internal_error", "internal error")
@@ -275,6 +290,7 @@ func (s *Service) record(ctx context.Context, principal Principal, request *auth
 		Resource:          request.Resource,
 		ArgumentsHash:     hex.EncodeToString(sum[:]),
 		ArgumentsRedacted: redacted,
+		ArgumentBytes:     len(canonical),
 		RequestedAt:       requestedAt.UTC(),
 		Decision:          decision,
 		RawBodyHash:       hex.EncodeToString(bodySum[:]),
@@ -336,6 +352,76 @@ func (s *Service) open(ctx context.Context, body []byte, headers Headers) (Princ
 		return Principal{}, fail(http.StatusInternalServerError, "internal_error", "internal error")
 	}
 	return principal, nil
+}
+
+func (s *Service) takeLimit(ctx context.Context, agentID string, tool string, bodyLength int) error {
+	if s.Limits == nil {
+		return nil
+	}
+	err := s.Limits.Take(ctx, agentID, tool, limits.Tokens(bodyLength))
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, limits.ErrRequests), errors.Is(err, limits.ErrTool), errors.Is(err, limits.ErrBudget):
+		return fail(http.StatusTooManyRequests, "rate_limited", err.Error())
+	default:
+		return fail(http.StatusInternalServerError, "internal_error", "internal error")
+	}
+}
+
+func (s *Service) adapterTimeout() time.Duration {
+	if s.AdapterTimeout > 0 {
+		return s.AdapterTimeout
+	}
+	return limits.AdapterTimeout
+}
+
+func (s *Service) invoke(ctx context.Context, call Executable) (map[string]any, error) {
+	if s.Breaker != nil {
+		if err := s.Breaker.Allow(ctx, call.OrganizationID, call.ToolName); err != nil {
+			return nil, err
+		}
+	}
+	runCtx, cancel := context.WithTimeout(ctx, s.adapterTimeout())
+	defer cancel()
+	run := s.Run
+	if run == nil {
+		run = echoAdapter
+	}
+	payload, err := run(runCtx, call.Operation, call.Resource)
+	if err != nil {
+		if s.Breaker != nil && !errors.Is(err, limits.ErrOpen) && !errors.Is(err, limits.ErrUnavailable) {
+			if ferr := s.Breaker.Failure(ctx, call.OrganizationID, call.ToolName); ferr != nil {
+				return nil, ferr
+			}
+		}
+		return nil, err
+	}
+	if s.Breaker != nil {
+		if err := s.Breaker.Success(ctx, call.OrganizationID, call.ToolName); err != nil {
+			return nil, err
+		}
+	}
+	return payload, nil
+}
+
+func echoAdapter(ctx context.Context, operation string, resource string) (map[string]any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	echo, ok := adapter.Echo(operation, resource)
+	if !ok {
+		return nil, errors.New("sample adapter rejected the operation")
+	}
+	encoded, err := json.Marshal(echo)
+	if err != nil {
+		return nil, err
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		return nil, err
+	}
+	return payload, nil
 }
 
 func (s *Service) now() time.Time {

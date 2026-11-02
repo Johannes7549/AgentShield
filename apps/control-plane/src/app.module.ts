@@ -5,6 +5,8 @@ import { AgentsController } from "./agents/agents.controller";
 import { AgentsService } from "./agents/agents.service";
 import { ApprovalsController } from "./approvals/approvals.controller";
 import { ApprovalsService } from "./approvals/approvals.service";
+import { IncidentsController } from "./incidents/incidents.controller";
+import { IncidentsService } from "./incidents/incidents.service";
 import { APP_CONFIG, loadConfig } from "./config/configuration";
 import { DATABASE_POOL, DatabaseLifecycle, createPool } from "./db/database";
 import { HealthController } from "./health/health.controller";
@@ -15,7 +17,7 @@ import { SessionsController } from "./sessions/sessions.controller";
 import { SessionsService } from "./sessions/sessions.service";
 
 @Module({
-  controllers: [HealthController, SessionsController, AgentsController, PoliciesController, ApprovalsController],
+  controllers: [HealthController, SessionsController, AgentsController, PoliciesController, ApprovalsController, IncidentsController],
   providers: [
     {
       provide: APP_CONFIG,
@@ -33,6 +35,7 @@ import { SessionsService } from "./sessions/sessions.service";
     AgentsService,
     PoliciesService,
     ApprovalsService,
+    IncidentsService,
     { provide: APP_FILTER, useClass: ApiExceptionFilter },
   ],
 })

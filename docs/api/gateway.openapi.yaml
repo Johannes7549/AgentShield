@@ -11,7 +11,8 @@ info:
     policy, and persists the decision. `allow` does not execute the tool.
     `POST /api/v1/runtime/execute` runs only the labeled `sample.echo` adapter.
     Every other tool returns 501. An approved request can be consumed once.
-    Rate limits are Not implemented.
+    Request, tool-call, and token budgets are enforced in Redis and return 429.
+    Model scoring is Not implemented.
 
     The gateway authenticates the agent from the signature headers and the
     registered public key. `organization_id` in the body is a claim. It is not
@@ -94,6 +95,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthorizeResponse"
+        "429":
+          description: The authenticated agent exceeded a request, tool-call, or token budget. No decision is recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
   /api/v1/runtime/execute:
     post:
       tags: [Runtime]
@@ -105,7 +112,10 @@ paths:
         the id of an approved, unexpired approval for that decision. Consumption
         is single-use. The approver cannot be the agent.
         The only registered adapter is sample.echo, and it has no external side effect.
-        Any other tool returns 501.
+        Any other tool returns 501 and does not trip the circuit. The adapter has a
+        two-second deadline. Five adapter failures open the tool circuit, and an
+        open circuit returns 503 without calling the adapter. A completed execution
+        returns the stored result.
       security:
         - agentSignature: []
       parameters:
@@ -128,6 +138,12 @@ paths:
                 $ref: "#/components/schemas/ExecuteResponse"
         "409":
           description: The decision is not an unconsumed allow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorBody"
+        "503":
+          description: The tool circuit is open. The adapter is not called.
           content:
             application/json:
               schema:
@@ -203,6 +219,7 @@ components:
                 - not_found
                 - conflict
                 - rate_limited
+                - circuit_open
                 - approval_required
                 - approval_expired
                 - not_implemented
